@@ -1,0 +1,79 @@
+{
+  "users": [
+    {
+      "username": "sjenkins",
+      "email": "s.jenkins@ericon.org",
+      "role": "Senior Epidemiologist",
+      "institution": "ERICON Ecological Group",
+      "passwordHash": "simple_hash_123456",
+      "createdAt": "2026-03-27T12:58:08.507Z"
+    },
+    {
+      "username": "mvance",
+      "email": "m.vance@reynolds.tech",
+      "role": "Fluid Dynamics Specialist",
+      "institution": "Reynolds Biotechnical",
+      "passwordHash": "simple_hash_123456",
+      "createdAt": "2026-04-11T12:58:08.507Z"
+    }
+  ],
+  "comments": [
+    {
+      "id": "comment-1",
+      "author": "Dr. Sarah Jenkins",
+      "authorRole": "Senior Epidemiologist",
+      "authorInstitution": "ERICON Ecological Group",
+      "timestamp": "2026-05-25T00:58:08.507Z",
+      "content": "I noticed increased respiratory stress when transporting Mastomys natalensis through Vector Hub Alpha under elevated ambient temperatures. When operating at 34°C, dehydration risk climbs sharply, bringing the Survival Score down. I proposed retrofitting the ventilation heat exchanger to maintain the tube closer to their thermoneutral sweet spot (24°C–32°C). Keep temps inside this range!",
+      "chartState": {
+        "specs": {
+          "p1": 105,
+          "p2": 98,
+          "length": 30,
+          "diameter": 90,
+          "roughness": 0.0015,
+          "temperature": 34,
+          "capsuleMass": 120,
+          "capsuleFriction": 0.08,
+          "capsuleClearance": 0.98
+        },
+        "rodentSpecies": "mastomys_natalensis",
+        "survivalScore": 68
+      },
+      "replies": [
+        {
+          "id": "reply-1-1",
+          "author": "Prof. Marcus Vance",
+          "authorRole": "Fluid Dynamics Specialist",
+          "authorInstitution": "Reynolds Biotechnical",
+          "timestamp": "2026-05-25T12:58:08.507Z",
+          "content": "Excellent observation, Sarah. From the fluid dynamics side, lowering the temp slightly (e.g. to 25°C) also improves air density, which stabilizes the velocity vectors."
+        }
+      ]
+    },
+    {
+      "id": "comment-2",
+      "author": "Prof. Marcus Vance",
+      "authorRole": "Fluid Dynamics Specialist",
+      "authorInstitution": "Reynolds Biotechnical",
+      "timestamp": "2026-05-26T00:58:08.507Z",
+      "content": "Be careful when modifying pressures! If the differential pressure drops too low, say by reducing P1 under 95 kPa with P2 at 92 kPa, the volumetric flow Q drops below 5.0 L/min, which fails the minimum Air Change Rate (ACH) requirement of 18 changes per hour for rodents. Keep the flow laminar but maintain an active vacuum!",
+      "chartState": {
+        "specs": {
+          "p1": 94,
+          "p2": 92,
+          "length": 30,
+          "diameter": 90,
+          "roughness": 0.0015,
+          "temperature": 22,
+          "capsuleMass": 120,
+          "capsuleFriction": 0.08,
+          "capsuleClearance": 0.98
+        },
+        "rodentSpecies": "field_mouse",
+        "survivalScore": 41
+      },
+      "replies": []
+    }
+  ]
+}
