@@ -5,6 +5,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Terminal, Trash2, Search, Sliders, ArrowUpRight, ArrowDownRight, RefreshCw, FileText } from 'lucide-react';
+import { exportPremiumExcelSpreadsheet } from '../utils/premiumExport';
 
 export interface AuditRecord {
   id: string;
@@ -76,18 +77,34 @@ export const AuditLog: React.FC<AuditLogProps> = ({ auditLogs, onClearLogs }) =>
 
   const handleExportLogs = () => {
     if (auditLogs.length === 0) return;
-    const header = "ID,Timestamp,Parameter,Field,PreviousValue,NewValue,Operator\n";
-    const body = auditLogs.map(l => 
-      `"${l.id}","${l.timestamp}","${l.parameter}","${l.field}","${l.oldVal}","${l.newVal}","${l.operator}"`
-    ).join("\n");
-    const blob = new Blob([header + body], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `ERICON_Simulator_Specs_AuditLog_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const headers = ["Record ID", "Timestamp (UTC)", "Measured Parameter", "Field Identifier", "Previous Core Value", "New Updated Value", "Authorised Operator"];
+    const rows = auditLogs.map(l => [
+      l.id,
+      l.timestamp,
+      l.parameter,
+      l.field,
+      l.oldVal,
+      l.newVal,
+      l.operator
+    ]);
+
+    exportPremiumExcelSpreadsheet(
+      `ERICON_Simulator_Specs_AuditLog_${Date.now()}.xls`,
+      'ERICON Real-Time Simulation and Parameter Change Audit Log',
+      'Certified Legal Chain-of-Custody Compliance Verification Ledgers',
+      headers,
+      rows,
+      {
+        'Project Name': 'ERICON Bio-Integrated Direct Transit Systems Program',
+        'Audit Node': 'Primary Fluid-Dynamics Core Simulator Grid',
+        'Registry Identifier': 'MOR-REG-B12-90',
+        'Audit Row Count': `${auditLogs.length} parameters logged`,
+        'Date Generated': new Date().toUTCString(),
+        'Report Version': 'v4.5-Ledger'
+      }
+    );
+
+    window.dispatchEvent(new CustomEvent('ericon_show_toast', { detail: { message: "🎉 Audit Log Workbook compiled & generated according to ERICON Brand Standard!", type: "success" } }));
   };
 
   return (

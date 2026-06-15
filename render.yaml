@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: ericon-air-transport-simulator
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: APP_URL
+        sync: false

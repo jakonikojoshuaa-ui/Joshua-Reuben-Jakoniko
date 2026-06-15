@@ -1,5 +1,5 @@
 {
-  "name": "ERICO PROJECT BY J.R.JAKONIKO Air Transport System Simulator ",
+  "name": "ERICO Air Transport Simulator",
   "description": "An interactive engineering schematic and physics simulator of a differential pressure air transport system with OWEP Inlet, Polyamide-6 transit tube, and Terminal EMA Hub.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

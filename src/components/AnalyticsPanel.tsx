@@ -4,9 +4,11 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Cpu, Wind, ShieldAlert, BadgeInfo, Weight, Zap, Gauge, Clock, Trash2, Plus, TrendingUp, History, Play } from 'lucide-react';
+import { Cpu, Wind, ShieldAlert, BadgeInfo, Weight, Zap, Gauge, Clock, Trash2, Plus, TrendingUp, History, Play, CheckSquare, Square, RefreshCcw } from 'lucide-react';
 import { SystemSpecs, PhysicsCalculations, CapsuleSimulation, RodentSpecies } from '../types';
+import { calculatePhysics, calculateSurvivalScore } from '../utils/physics';
 
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { Heart, Activity, AlertTriangle, CheckCircle, Flame, Snowflake, ShieldCheck } from 'lucide-react';
 
 interface AnalyticsPanelProps {
@@ -14,7 +16,7 @@ interface AnalyticsPanelProps {
   calc: PhysicsCalculations;
   capsule: CapsuleSimulation;
   rodentSpecies: RodentSpecies;
-  owepDesign: 'flap_door' | 'flex_finger';
+  owepDesign: 'flap_door' | 'flex_finger' | 'hybrid';
 }
 
 const SPECIES_PROFILES: Record<RodentSpecies, { 
@@ -106,6 +108,51 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
   });
 
   const [activeOverlays, setActiveOverlays] = useState<string[]>([]);
+
+  // Species visibility toggles inside the Recharts historic trends chart
+  const [visibleSpecies, setVisibleSpecies] = useState<Record<RodentSpecies, boolean>>({
+    field_mouse: true,
+    house_mouse: true,
+    mastomys_natalensis: true,
+    arvicanthis_spp: true,
+    roof_rat: true,
+    brown_rat: true,
+  });
+
+  // Compile active survival scores across historical runs dynamically mapped to current specs adjustments
+  const chartsData = useMemo(() => {
+    const runs = [
+      { id: 'Run 1', name: 'Run 1 (Base Inflow)', p1: 100, p2: 95, temp: 22 },
+      { id: 'Run 2', name: 'Run 2 (High Vacuum)', p1: 110, p2: 92, temp: 18 },
+      { id: 'Run 3', name: 'Run 3 (Dusk Chill)', p1: 105, p2: 100, temp: 14 },
+      { id: 'Run 4', name: 'Run 4 (Thermal Leak)', p1: 102, p2: 96, temp: 35 },
+      { id: 'Run 5', name: 'Run 5 (Pressure Drop)', p1: 85, p2: 81, temp: 24 },
+      { id: 'Run 6', name: 'Run 6 (Laminar Sweet)', p1: 108, p2: 102, temp: 25 },
+      { id: 'Run 7', name: 'Run 7 (Power Surge)', p1: 125, p2: 110, temp: 28 },
+      { id: 'Active', name: 'Current Calibration', p1: specs.p1, p2: specs.p2, temp: specs.temperature }
+    ];
+
+    return runs.map(r => {
+      const rSpecs: SystemSpecs = {
+        ...specs,
+        p1: r.p1,
+        p2: r.p2,
+        temperature: r.temp
+      };
+      const rCalc = calculatePhysics(rSpecs);
+
+      return {
+        name: r.id,
+        fullName: r.name,
+        field_mouse: calculateSurvivalScore(rSpecs, rCalc, 'field_mouse'),
+        house_mouse: calculateSurvivalScore(rSpecs, rCalc, 'house_mouse'),
+        mastomys_natalensis: calculateSurvivalScore(rSpecs, rCalc, 'mastomys_natalensis'),
+        arvicanthis_spp: calculateSurvivalScore(rSpecs, rCalc, 'arvicanthis_spp'),
+        roof_rat: calculateSurvivalScore(rSpecs, rCalc, 'roof_rat'),
+        brown_rat: calculateSurvivalScore(rSpecs, rCalc, 'brown_rat')
+      };
+    });
+  }, [specs]);
 
   // Kinetic energy calculation for capsule
   const kineticEnergy = 0.5 * (specs.capsuleMass / 1000) * Math.pow(capsule.velocity, 2);
@@ -914,6 +961,122 @@ export const AnalyticsPanel: React.FC<AnalyticsPanelProps> = ({
 
         </div>
 
+      </div>
+
+      {/* ================= RECHARTS SPECIES-SPECIFIC TRENDS VIEW ================= */}
+      <div className="border-2 border-slate-200 rounded-sm p-5 bg-white flex flex-col gap-4 mt-4" id="species-survival-recharts-trends">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-4.5 h-4.5 text-emerald-700 animate-pulse" />
+            <div className="flex flex-col">
+              <h3 className="text-xs font-mono font-bold text-slate-800 tracking-wider uppercase">
+                Species-Specific Historical Survival Trends (Recharts)
+              </h3>
+              <p className="text-[9px] text-slate-400 font-sans">
+                Dynamic comparative tracking of rodent survival index across previous audit runs versus current active settings.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => setVisibleSpecies({
+                field_mouse: true, house_mouse: true, mastomys_natalensis: true,
+                arvicanthis_spp: true, roof_rat: true, brown_rat: true
+              })}
+              className="px-2 py-0.5 text-[8px] font-bold font-mono bg-slate-150 text-slate-600 hover:bg-slate-200 rounded border border-slate-300 cursor-pointer"
+            >
+              Check All
+            </button>
+            <button
+              onClick={() => setVisibleSpecies({
+                field_mouse: false, house_mouse: false, mastomys_natalensis: false,
+                arvicanthis_spp: false, roof_rat: false, brown_rat: false
+              })}
+              className="px-2 py-0.5 text-[8px] font-bold font-mono bg-slate-150 text-slate-600 hover:bg-slate-200 rounded border border-slate-300 cursor-pointer"
+            >
+              Uncheck All
+            </button>
+          </div>
+        </div>
+
+        {/* Species selector checklist */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 bg-slate-50 p-3 rounded-sm border border-slate-150">
+          {(Object.keys(visibleSpecies) as Array<RodentSpecies>).map((sp) => {
+            const colors: Record<RodentSpecies, string> = {
+              field_mouse: '#10b981',
+              house_mouse: '#3b82f6',
+              mastomys_natalensis: '#f59e0b',
+              arvicanthis_spp: '#ea580c',
+              roof_rat: '#8b5cf6',
+              brown_rat: '#ef4444'
+            };
+            const labels: Record<RodentSpecies, string> = {
+              field_mouse: 'Field Mouse',
+              house_mouse: 'House Mouse',
+              mastomys_natalensis: 'Mastomys',
+              arvicanthis_spp: 'Grass Rat',
+              roof_rat: 'Roof Rat',
+              brown_rat: 'Brown Rat'
+            };
+            return (
+              <label key={sp} className="flex items-center gap-2 select-none cursor-pointer text-[10px] font-bold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={visibleSpecies[sp]}
+                  onChange={(e) => setVisibleSpecies(prev => ({ ...prev, [sp]: e.target.checked }))}
+                  className="accent-emerald-600 w-3.5 h-3.5 rounded"
+                  style={{ accentColor: colors[sp] }}
+                />
+                <span className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: colors[sp] }} />
+                  {labels[sp]}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+
+        {/* Recharts SVG Box */}
+        <div className="h-[240px] w-full pt-2">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartsData} margin={{ top: 12, right: 24, left: -24, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="name" stroke="#64748b" style={{ fontSize: '9px', fontWeight: 'bold', fontFamily: 'monospace' }} />
+              <YAxis stroke="#64748b" domain={[0, 100]} label={{ value: 'Survival (%)', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fontSize: '9px', fill: '#64748b', fontWeight: 'bold' } }} style={{ fontSize: '9px', fontWeight: 'bold', fontFamily: 'monospace' }} />
+              <Tooltip
+                content={({ active, payload, label }) => {
+                  if (active && payload && payload.length) {
+                    const runItem = chartsData.find(d => d.name === label);
+                    return (
+                      <div className="recharts-custom-tooltip p-3.5 shadow-xl text-[9px] max-w-[280px]">
+                        <p className="font-bold text-emerald-400 border-b border-slate-800 pb-1.5 uppercase mb-2 tracking-wider">
+                          {runItem ? runItem.fullName : label}
+                        </p>
+                        <div className="space-y-1">
+                          {payload.map((p) => (
+                            <div key={p.name} className="flex items-center justify-between gap-6">
+                              <span style={{ color: p.color }} className="font-bold">
+                                {p.name === 'field_mouse' ? 'Field Mouse' : p.name === 'house_mouse' ? 'House Mouse' : p.name === 'mastomys_natalensis' ? 'Mastomys' : p.name === 'arvicanthis_spp' ? 'Grass Rat' : p.name === 'roof_rat' ? 'Roof Rat' : 'Brown Rat'}
+                              </span>
+                              <span className="font-extrabold">{p.value}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                }}
+              />
+              {visibleSpecies.field_mouse && <Line type="monotone" dataKey="field_mouse" name="Field Mouse" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />}
+              {visibleSpecies.house_mouse && <Line type="monotone" dataKey="house_mouse" name="House Mouse" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />}
+              {visibleSpecies.mastomys_natalensis && <Line type="monotone" dataKey="mastomys_natalensis" name="Mastomys" stroke="#f59e0b" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />}
+              {visibleSpecies.arvicanthis_spp && <Line type="monotone" dataKey="arvicanthis_spp" name="Grass Rat" stroke="#ea580c" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />}
+              {visibleSpecies.roof_rat && <Line type="monotone" dataKey="roof_rat" name="Roof Rat" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />}
+              {visibleSpecies.brown_rat && <Line type="monotone" dataKey="brown_rat" name="Brown Rat" stroke="#ef4444" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       <hr className="border-t border-slate-100 my-1" />

@@ -9,9 +9,12 @@ import {
   Users, LogIn, UserPlus, LogOut, MessageSquare, Compass, 
   Send, RefreshCw, BarChart4, ChevronRight, CheckCircle2, ShieldCheck, 
   Database, UserCheck, AlertCircle, Thermometer, Wind, Check,
-  Lightbulb, AlertTriangle, Bell, BellOff, X, Download, HelpCircle
+  Lightbulb, AlertTriangle, Bell, BellOff, X, Download, HelpCircle,
+  MessageCircle, Wrench, ShieldAlert, Mail
 } from 'lucide-react';
 import { SystemSpecs, RodentSpecies } from '../types';
+import { googleSignIn } from '../lib/workspaceAuth';
+import { getEriconLogoDataUrl, getLogoFitDimensions, getLogoAspectRatio } from '../utils/ericonLogoDraw';
 
 interface ChartingRoomProps {
   specs: SystemSpecs;
@@ -76,6 +79,7 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
   });
 
   const [authView, setAuthView] = useState<'signin' | 'signup'>('signin');
+  const [activeChannel, setActiveChannel] = useState<'general' | 'research' | 'feedback'>('general');
   const [successLoadId, setSuccessLoadId] = useState<string | null>(null);
 
   // Form states - authentication
@@ -92,6 +96,8 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
   const [attachSimState, setAttachSimState] = useState(true);
   const [activeReplyBox, setActiveReplyBox] = useState<string | null>(null);
   const [replyBody, setReplyBody] = useState('');
+  const [feedbackType, setFeedbackType] = useState('Bug Report');
+  const [feedbackSeverity, setFeedbackSeverity] = useState('Medium');
 
   // Forum lists
   const [comments, setComments] = useState<ForumComment[]>([]);
@@ -206,9 +212,36 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
     doc.setFillColor(6, 78, 59); // deep emerald
     doc.rect(0, 0, 210, 32, 'F');
 
+    // Add high-fidelity official ERICON logo on the right header banner (corrected alignment with square badge)
+    const ericonLogoData = getEriconLogoDataUrl(200, 230);
+    if (ericonLogoData) {
+      const ratio = getLogoAspectRatio() || (162 / 186);
+      const cardHeight = 22;
+      const cardWidth = cardHeight * ratio;
+      const xPos = 195 - cardWidth;
+      const yPos = 5;
+
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(xPos, yPos, cardWidth, cardHeight, 1.5, 1.5, 'F');
+
+      doc.setDrawColor(197, 160, 43); // Premium Gold `#C5A02B`
+      doc.setLineWidth(0.4);
+      doc.roundedRect(xPos, yPos, cardWidth, cardHeight, 1.5, 1.5, 'S');
+
+      // Fit logo snuggly inside the card
+      const padding = 1.6;
+      const logoW = cardWidth - (padding * 2);
+      const logoH = cardHeight - (padding * 2);
+      const logoX = xPos + padding;
+      const logoY = yPos + padding;
+
+      doc.addImage(ericonLogoData, 'PNG', logoX, logoY, logoW, logoH);
+    }
+
     doc.setTextColor(255, 255, 255);
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(14);
+    doc.setFontSize(12.5); // Adjusted to fit nicely when logo is on the right
+    // Draw text with enough space starting at the left margin x=15
     doc.text('ERICON FORUM ARCHIVE & SCIENTIFIC COLLABORATION REPORT', 15, 12);
 
     doc.setFont('Helvetica', 'normal');
@@ -221,7 +254,7 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
       doc.rect(0, 285, 210, 12, 'F');
       doc.setFont('Helvetica', 'normal');
       doc.setFontSize(7.5);
-      doc.setTextColor(100, 116, 139);
+      doc.setTextColor(21, 70, 45);
       doc.text('OWEP-EMA-V1 SYSTEM DEMARCATION REPORT • ACCREDITED DESIGN BLUEPRINT', 15, 292);
       doc.text(`Page ${pageNum}`, 190, 292);
     };
@@ -233,7 +266,7 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
     if (comments.length === 0) {
       doc.setFont('Helvetica', 'italic');
       doc.setFontSize(10);
-      doc.setTextColor(148, 163, 184);
+      doc.setTextColor(21, 70, 45);
       doc.text('No scholarly dispatches registered inside the server mirror database.', 15, y);
     } else {
       comments.forEach((comment, index) => {
@@ -253,12 +286,12 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
         // Author details
         doc.setFont('Helvetica', 'bold');
         doc.setFontSize(10);
-        doc.setTextColor(15, 23, 42); // slate 900
+        doc.setTextColor(21, 70, 45); // deep dark green 
         doc.text(`DISPATCH #${index + 1}: Posted by Dr. ${comment.author}`, 15, y);
 
         doc.setFont('Helvetica', 'normal');
         doc.setFontSize(8);
-        doc.setTextColor(100, 116, 139); // slate 500
+        doc.setTextColor(21, 70, 45); // deep dark green
         doc.text(`Role: ${comment.authorRole}   |   Institution: ${comment.authorInstitution}`, 15, y + 4.5);
         doc.text(`Timestamp: ${new Date(comment.timestamp).toLocaleString()}`, 15, y + 8.5);
         y += 13;
@@ -266,7 +299,7 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
         // Content body text
         doc.setFont('Helvetica', 'normal');
         doc.setFontSize(9.5);
-        doc.setTextColor(51, 65, 85); // slate 700
+        doc.setTextColor(21, 70, 45); // deep dark green
         const textLines = doc.splitTextToSize(`"${comment.content}"`, 175);
         textLines.forEach((line: string) => {
           if (y > 270) {
@@ -294,12 +327,12 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
 
           doc.setFont('Helvetica', 'bold');
           doc.setFontSize(7.5);
-          doc.setTextColor(15, 23, 42);
+          doc.setTextColor(21, 70, 45);
           doc.text('ATTACHED VECTOR MODEL SPECS & VARIABLES:', 18, y + 5);
 
           doc.setFont('Helvetica', 'normal');
           doc.setFontSize(8);
-          doc.setTextColor(100, 116, 139);
+          doc.setTextColor(21, 70, 45);
           const speciesFriendly = comment.chartState.rodentSpecies.replace('_', ' ').toUpperCase();
           const specReport = `Species: ${speciesFriendly}   |   Temp: ${comment.chartState.specs.temperature}°C   |   P1-P2: ${comment.chartState.specs.p1.toFixed(1)}-${comment.chartState.specs.p2.toFixed(1)} kPa   |   Survival score: ${comment.chartState.survivalScore}%`;
           doc.text(specReport, 18, y + 10);
@@ -321,12 +354,12 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
 
             doc.setFont('Helvetica', 'bold');
             doc.setFontSize(8.5);
-            doc.setTextColor(30, 41, 59);
+            doc.setTextColor(21, 70, 45);
             doc.text(`↳ Reply: Dr. ${rep.author} (${rep.authorRole})`, 25, y + 4.5);
 
             doc.setFont('Helvetica', 'normal');
             doc.setFontSize(8.5);
-            doc.setTextColor(71, 85, 105);
+            doc.setTextColor(21, 70, 45);
 
             const replyLines = doc.splitTextToSize(`"${rep.content}"`, 160);
             y += 8;
@@ -350,11 +383,11 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
     doc.save(`ERICON_Scientific_Discussions_Offline_Archival.pdf`);
   };
 
-  // Fetch comments from server core
+  // Fetch comments from server core filtered by selected channel
   const fetchComments = async () => {
     setIsLoadingFeed(true);
     try {
-      const response = await fetch('/api/forum/comments');
+      const response = await fetch(`/api/forum/comments?channel=${activeChannel}`);
       if (response.ok) {
         const data = await response.json();
         setComments(data.comments || []);
@@ -370,7 +403,7 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
     fetchComments();
     const interval = setInterval(fetchComments, 10000); // Poll comments every 10 seconds for real-time collaboration
     return () => clearInterval(interval);
-  }, []);
+  }, [activeChannel]);
 
   // Handle Log Out
   const handleSignOut = () => {
@@ -453,6 +486,29 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
     }
   };
 
+  // Google Firebase accredited sign-in handler
+  const handleGoogleSignIn = async () => {
+    try {
+      setAuthError(null);
+      setAuthSuccess(null);
+      const result = await googleSignIn();
+      if (result && result.user) {
+        const u = {
+          username: result.user.displayName || result.user.email?.split('@')[0] || 'GoogleUser',
+          email: result.user.email || '',
+          role: 'Accredited Eco-Officer',
+          institution: 'Firebase Accredited G-Suite'
+        };
+        setCurrentUser(u);
+        localStorage.setItem('ericon_logged_scientist', JSON.stringify(u));
+        setAuthSuccess(`Successfully authenticated via Google credentials as ${u.username}!`);
+        setTimeout(() => setAuthSuccess(null), 4000);
+      }
+    } catch (err: any) {
+      setAuthError(err.message || 'Google authentication window closed or expired.');
+    }
+  };
+
   // Submit Comments
   const handlePostComment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -468,11 +524,17 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
       return;
     }
 
+    let finalBody = newCommentBody.trim();
+    if (activeChannel === 'feedback') {
+      finalBody = `🛠️ [${feedbackType.toUpperCase()}] • [SEVERITY: ${feedbackSeverity.toUpperCase()}] • [STATUS: ACTIVE/OPEN]\n\n${finalBody}`;
+    }
+
     const payload = {
       author: currentUser.username,
       authorRole: currentUser.role,
       authorInstitution: currentUser.institution,
-      content: newCommentBody.trim(),
+      content: finalBody,
+      channel: activeChannel,
       chartState: attachSimState ? { specs, rodentSpecies, survivalScore } : null
     };
 
@@ -673,9 +735,24 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
                     Authenticate Colleague
                   </button>
 
+                  <div className="relative flex py-2 items-center text-[9px]">
+                    <div className="flex-grow border-t border-slate-200"></div>
+                    <span className="flex-shrink mx-3 text-slate-400 font-extrabold uppercase tracking-wider">OR PERSIST SECURELY</span>
+                    <div className="flex-grow border-t border-slate-200"></div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleGoogleSignIn}
+                    className="w-full py-2.5 bg-white hover:bg-slate-50 text-slate-800 border-2 border-slate-200 rounded font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-2 shadow-xs transition hover:border-slate-300 cursor-pointer"
+                  >
+                    <span className="text-emerald-600 font-black">G</span>
+                    Accredit via Google Auth (Firebase)
+                  </button>
+
                   <div className="bg-slate-50 border border-slate-200 p-3 rounded text-[9px]/relaxed text-slate-400">
                     <span className="font-bold text-slate-500">PROTOTYPE ASSIST:</span> Pre-configured credentials are active for instant access:
-                    <div className="mt-1 font-mono text-slate-600">
+                    <div className="mt-1 font-mono text-slate-650">
                       • <strong className="text-slate-800">sjenkins</strong> & passcode: <strong className="text-slate-800">123456</strong>
                       <br />• <strong className="text-slate-800">mvance</strong> & passcode: <strong className="text-slate-800">123456</strong>
                     </div>
@@ -748,6 +825,21 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
                   >
                     Acquire New Account
                   </button>
+
+                  <div className="relative flex py-2 items-center text-[9px]">
+                    <div className="flex-grow border-t border-slate-200"></div>
+                    <span className="flex-shrink mx-3 text-slate-400 font-extrabold uppercase tracking-wider">OR PERSIST SECURELY</span>
+                    <div className="flex-grow border-t border-slate-200"></div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleGoogleSignIn}
+                    className="w-full py-2.5 bg-white hover:bg-slate-50 text-slate-800 border-2 border-slate-200 rounded font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-2 shadow-xs transition hover:border-slate-300 cursor-pointer"
+                  >
+                    <span className="text-emerald-600 font-black">G</span>
+                    Acquire via Google Auth
+                  </button>
                 </form>
               )}
             </div>
@@ -755,13 +847,13 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
         </div>
 
         {/* Live Vector Telemetry Metadata Indicator */}
-        <div className="bg-slate-900 border border-slate-800 p-5 rounded-sm text-slate-350 shadow-md">
-          <h4 className="text-[10px] font-bold text-teal-400 uppercase tracking-widest mb-3 flex items-center gap-1.5 border-b border-slate-800 pb-2">
+        <div id="live-vector-telemetry-indicator" className="bg-slate-900 border border-slate-800 p-5 rounded-sm text-slate-350 shadow-md">
+          <h4 id="telemetry-header" className="text-[10px] font-bold text-teal-400 uppercase tracking-widest mb-3 flex items-center gap-1.5 border-b border-slate-800 pb-2">
             <Database className="w-4 h-4 text-teal-500" />
             Active Vector Telemetry
           </h4>
           <div className="space-y-2 text-[9.5px]">
-            <p className="text-[9px]/relaxed text-slate-400 font-mono italic">
+            <p id="telemetry-paragraph" className="text-[9px]/relaxed text-slate-400 font-mono italic">
               When constructing comments in the peer discussion room, you can automatically capture ERICON's active fluid dynamics vectors.
             </p>
             <div className="border border-slate-805 bg-slate-950 p-3 rounded-sm space-y-1.5 font-mono">
@@ -851,11 +943,50 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
       {/* RIGHT COLUMN: PEER DISCUSSION FORUM (8 COLS) */}
       <div className="lg:col-span-8 flex flex-col gap-6" id="discuss-right-forum">
         
+        {/* CHANNELS NAVIGATION BAR - ULTRA MODERN */}
+        <div id="discuss-channels-tabs" className="grid grid-cols-3 bg-slate-100 p-1 border-2 border-slate-200 rounded-sm gap-1 text-[10px] font-bold uppercase shadow-sm">
+          <button
+            onClick={() => setActiveChannel('general')}
+            className={`py-3 flex flex-col sm:flex-row items-center justify-center gap-1.5 rounded transition-all cursor-[pointer] select-none ${activeChannel === 'general' ? 'bg-emerald-800 text-white shadow-xs border border-emerald-900' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'}`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            General Lounge
+          </button>
+          <button
+            onClick={() => setActiveChannel('research')}
+            className={`py-3 flex flex-col sm:flex-row items-center justify-center gap-1.5 rounded transition-all cursor-[pointer] select-none ${activeChannel === 'research' ? 'bg-emerald-800 text-white shadow-xs border border-emerald-900' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'}`}
+          >
+            <Compass className="w-3.5 h-3.5" />
+            Research Channel
+          </button>
+          <button
+            onClick={() => setActiveChannel('feedback')}
+            className={`py-3 flex flex-col sm:flex-row items-center justify-center gap-1.5 rounded transition-all cursor-[pointer] select-none ${activeChannel === 'feedback' ? 'bg-indigo-900 text-white shadow-xs border border-indigo-950' : 'text-slate-500 hover:text-indigo-850 hover:bg-slate-200/50'}`}
+          >
+            <Wrench className="w-3.5 h-3.5" />
+            Dev Feedback Portal
+          </button>
+        </div>
+
         {/* NEW DISPATCH TRANSMITTER FORM */}
         <div className="bg-white border-2 border-slate-200 rounded-sm p-5 shadow-sm">
-          <h3 className="text-xs font-extrabold uppercase tracking-widest text-emerald-950 mb-3 border-b border-slate-100 pb-2.5 flex items-center gap-2">
-            <MessageSquare className="w-4 h-4 text-blue-600" />
-            Transmit New Research Dispatch
+          <h3 className="text-xs font-extrabold uppercase tracking-widest text-[#15462D] mb-3 border-b border-slate-100 pb-2.5 flex items-center gap-2">
+            {activeChannel === 'general' ? (
+              <>
+                <MessageSquare className="w-4 h-4 text-emerald-600" />
+                Open Staff Lounge Dispatch
+              </>
+            ) : activeChannel === 'research' ? (
+              <>
+                <Compass className="w-4 h-4 text-emerald-600" />
+                Transmit Core Scientific Simulation Thesis
+              </>
+            ) : (
+              <>
+                <Wrench className="w-4 h-4 text-indigo-600" />
+                Developer Feedback & Issue Ledger Form
+              </>
+            )}
           </h3>
 
           {currentUser ? (
@@ -867,11 +998,53 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
                 </div>
               )}
 
+              {/* Developer feedback special controls */}
+              {activeChannel === 'feedback' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-indigo-50/50 p-4 rounded-sm border border-indigo-150 text-[10px] font-bold">
+                  <div className="space-y-1">
+                    <label className="text-indigo-950 uppercase">Feedback Category</label>
+                    <select
+                      className="w-full bg-white border border-indigo-200 p-2 font-mono rounded cursor-pointer"
+                      value={feedbackType}
+                      onChange={(e) => setFeedbackType(e.target.value)}
+                    >
+                      <option value="Bug Report">🐛 Software Bug / Glitch</option>
+                      <option value="Fluid Model Anomaly">💨 Fluid Model Deviation</option>
+                      <option value="UI UX Layout Alignment">📱 Responsive UI/UX Suggestion</option>
+                      <option value="New Feature Proposal">💡 New Feature Suggestion</option>
+                      <option value="Other Issue">⚙️ Operations General</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-indigo-950 uppercase">Severity Priority Level</label>
+                    <select
+                      className="w-full bg-white border border-indigo-200 p-2 font-mono rounded cursor-pointer"
+                      value={feedbackSeverity}
+                      onChange={(e) => setFeedbackSeverity(e.target.value)}
+                    >
+                      <option value="Low">Low - Cosmetic/Typo</option>
+                      <option value="Medium">Medium - Standard Inquiry</option>
+                      <option value="High">High - Misalignment/Error</option>
+                      <option value="Critical">Critical - System Obstruction</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-1">
-                <label className="text-[9.5px] font-black tracking-wider text-slate-400 uppercase">Scientific Argument / Observations Thesis</label>
+                <label className="text-[9.5px] font-black tracking-wider text-slate-400 uppercase">
+                  {activeChannel === 'feedback' ? "In-depth Description / Replication Steps" : "Argument Text / Observations Thesis Body"}
+                </label>
                 <textarea
                   className="w-full bg-slate-50 border border-slate-200 p-3 h-28 text-slate-800 focus:outline-hidden focus:border-blue-600 font-mono text-[11px] placeholder-slate-400 leading-normal rounded"
-                  placeholder="Detail biological stress observations, pneumatic fluid gradients, or proposed system tweaks..."
+                  placeholder={
+                    activeChannel === 'feedback'
+                      ? "Explain what happened, what was expected, and how to replicate the layout/velocity glitch..."
+                      : activeChannel === 'general'
+                      ? "Say hi, coordinate research schedules, or chat with ERICON staff..."
+                      : "Detail biological stress observations, pneumatic fluid gradients, or proposed system tweaks..."
+                  }
                   value={newCommentBody}
                   onChange={(e) => setNewCommentBody(e.target.value)}
                 />
@@ -899,10 +1072,14 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
                 <button
                   type="submit"
                   id="btn-submit-discussion"
-                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold uppercase text-[10px] tracking-widest border border-blue-700 flex items-center gap-2 shadow-xs cursor-pointer rounded transition-all"
+                  className={`px-6 py-2.5 text-white font-extrabold uppercase text-[10px] tracking-widest flex items-center gap-2 shadow-xs cursor-[pointer] rounded transition-all border ${
+                    activeChannel === 'feedback'
+                      ? 'bg-indigo-600 hover:bg-indigo-700 border-indigo-700'
+                      : 'bg-emerald-800 hover:bg-emerald-950 border-emerald-900'
+                  }`}
                 >
                   <Send className="w-3.5 h-3.5" />
-                  Transmit to Colleague network
+                  {activeChannel === 'feedback' ? "Register Issue with Developers" : "Transmit Dispatch to Network"}
                 </button>
               </div>
             </form>
@@ -920,13 +1097,14 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
         {/* FEED SEPARATOR */}
         <div className="flex items-center justify-between font-mono" id="discuss-feed-toolbar">
           <div className="flex items-center gap-1.5 text-[9.5px] font-black uppercase text-slate-400">
-            <span>Historical Commits & Collaboration logs</span>
+            <span id="historical-commits-title">Historical Commits & Collaboration logs</span>
             <span className="px-1.5 py-0.5 bg-slate-200 text-slate-700 text-[8px] rounded-sm font-bold">{comments.length} THREADS</span>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               type="button"
+              id="pdf-archivist-btn"
               onClick={handleExportPDFArchive}
               className="flex items-center gap-1.5 shadow-xs hover:shadow-xs px-2.5 py-1 text-[8.5px] font-black uppercase text-white bg-emerald-800 hover:bg-emerald-900 border border-emerald-900 rounded-sm transition cursor-pointer"
               title="Download conversation history and simulation parameters as certified PDF report"
@@ -937,6 +1115,7 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
 
             <button
               type="button"
+              id="refresh-feed-btn"
               onClick={fetchComments}
               className="flex items-center gap-1 shadow-xs hover:shadow-xs px-2.5 py-1 text-[8.5px] font-bold text-slate-600 bg-white hover:bg-slate-50 border-2 border-slate-200 rounded-sm transition cursor-pointer"
               title="Reload comments feed immediately"
@@ -1069,11 +1248,11 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
                     onClick={() => handleReactComment(comment.id, 'insightful')}
                     disabled={!currentUser}
                     title={currentUser ? "Mark as Insightful Insight" : "Sign in to upvote"}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-amber-50 border border-amber-200/50 hover:border-amber-405 text-amber-850 transition cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
+                    className="ericon-reaction-btn ericon-reaction-insightful flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-amber-50 border border-amber-200/50 hover:border-amber-405 text-amber-850 transition cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
                   >
                     <Lightbulb className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                     <span className="font-bold">Insightful</span>
-                    <span className="px-1.5 py-0.2 bg-amber-200/40 rounded-xs font-mono font-bold text-amber-900">{comment.reactions?.insightful || 0}</span>
+                    <span className="ericon-badge-num px-1.5 py-0.2 bg-amber-200/40 rounded-xs font-mono font-bold text-amber-900">{comment.reactions?.insightful || 0}</span>
                   </button>
 
                   {/* Peer Verified */}
@@ -1082,11 +1261,11 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
                     onClick={() => handleReactComment(comment.id, 'verified')}
                     disabled={!currentUser}
                     title={currentUser ? "Mark as Method Verified" : "Sign in to upvote"}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-emerald-50 border border-emerald-200/50 hover:border-emerald-405 text-emerald-850 transition cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
+                    className="ericon-reaction-btn ericon-reaction-verified flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-emerald-50 border border-emerald-200/50 hover:border-emerald-405 text-emerald-850 transition cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
                   >
                     <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                     <span className="font-bold">Verified</span>
-                    <span className="px-1.5 py-0.2 bg-emerald-200/40 rounded-xs font-mono font-bold text-emerald-900">{comment.reactions?.verified || 0}</span>
+                    <span className="ericon-badge-num px-1.5 py-0.2 bg-emerald-200/40 rounded-xs font-mono font-bold text-emerald-900">{comment.reactions?.verified || 0}</span>
                   </button>
 
                   {/* Warning Danger */}
@@ -1095,11 +1274,11 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
                     onClick={() => handleReactComment(comment.id, 'alert')}
                     disabled={!currentUser}
                     title={currentUser ? "Mark as Vital Warning Indicator" : "Sign in to upvote"}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-rose-50 border border-rose-200/50 hover:border-rose-405 text-rose-850 transition cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
+                    className="ericon-reaction-btn ericon-reaction-warning flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-rose-50 border border-rose-200/50 hover:border-rose-405 text-rose-850 transition cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
                   >
                     <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
                     <span className="font-bold">Crucial Warning</span>
-                    <span className="px-1.5 py-0.2 bg-rose-200/40 rounded-xs font-mono font-bold text-rose-900">{comment.reactions?.alert || 0}</span>
+                    <span className="ericon-badge-num px-1.5 py-0.2 bg-rose-200/40 rounded-xs font-mono font-bold text-rose-900">{comment.reactions?.alert || 0}</span>
                   </button>
 
                   {/* Wind / Fluid physics */}
@@ -1108,11 +1287,11 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
                     onClick={() => handleReactComment(comment.id, 'fluid')}
                     disabled={!currentUser}
                     title={currentUser ? "Mark as Outstanding Fluid Dynamics Application" : "Sign in to upvote"}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-sky-50 border border-sky-200/50 hover:border-sky-405 text-sky-850 transition cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
+                    className="ericon-reaction-btn ericon-reaction-fluid flex items-center gap-1.5 px-2.5 py-1 rounded-sm bg-sky-50 border border-sky-200/50 hover:border-sky-405 text-sky-850 transition cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
                   >
                     <Wind className="w-3.5 h-3.5 text-sky-500 shrink-0" />
                     <span className="font-bold">Fluid Dynamics</span>
-                    <span className="px-1.5 py-0.2 bg-sky-200/40 rounded-xs font-mono font-bold text-sky-900">{comment.reactions?.fluid || 0}</span>
+                    <span className="ericon-badge-num px-1.5 py-0.2 bg-sky-200/40 rounded-xs font-mono font-bold text-sky-900">{comment.reactions?.fluid || 0}</span>
                   </button>
                 </div>
 
@@ -1135,7 +1314,7 @@ export const ChartingRoom: React.FC<ChartingRoomProps> = ({
                       <button
                         type="button"
                         onClick={() => { setActiveReplyBox(comment.id); setReplyBody(''); }}
-                        className="py-1 px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded transition cursor-pointer flex items-center gap-1"
+                        className="ericon-pen-response-btn py-1 px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded transition cursor-pointer flex items-center gap-1"
                       >
                         <MessageSquare className="w-3 h-3 text-slate-500" />
                         Pen Response

@@ -12,8 +12,10 @@ interface ControlPanelProps {
   onChangeSpecs: (newSpecs: SystemSpecs) => void;
   rodentSpecies: RodentSpecies;
   onChangeRodentSpecies: (val: RodentSpecies) => void;
-  owepDesign: 'flap_door' | 'flex_finger';
-  onChangeOwepDesign: (val: 'flap_door' | 'flex_finger') => void;
+  owepDesign: 'flap_door' | 'flex_finger' | 'hybrid';
+  onChangeOwepDesign: (val: 'flap_door' | 'flex_finger' | 'hybrid') => void;
+  isAdminLoggedIn?: boolean;
+  authDevLevel?: number;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({ 
@@ -22,9 +24,59 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   rodentSpecies,
   onChangeRodentSpecies,
   owepDesign,
-  onChangeOwepDesign
+  onChangeOwepDesign,
+  isAdminLoggedIn = false,
+  authDevLevel = 1
 }) => {
-  const [customPresets, setCustomPresets] = React.useState<{ label: string; specs: SystemSpecs; species?: RodentSpecies; owepDesign?: 'flap_door' | 'flex_finger' }[]>(() => {
+  const [unitPref, setUnitPref] = React.useState<'metric' | 'imperial'>('metric');
+  const [tempPref, setTempPref] = React.useState<'celsius' | 'fahrenheit'>('celsius');
+  const [roleLevel, setRoleLevel] = React.useState<number>(1);
+
+  React.useEffect(() => {
+    const syncPrefs = () => {
+      setUnitPref((localStorage.getItem('ericon_unit_system') as any) || 'metric');
+      setTempPref((localStorage.getItem('ericon_temp_unit') as any) || 'celsius');
+    };
+    syncPrefs();
+    window.addEventListener('storage', syncPrefs);
+    const interval = setInterval(syncPrefs, 1500);
+    return () => {
+      window.removeEventListener('storage', syncPrefs);
+      clearInterval(interval);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const syncUser = () => {
+      try {
+        const saved = localStorage.getItem('ericon_logged_scientist');
+        if (saved) {
+          const userObj = JSON.parse(saved);
+          const role = (userObj.role || '').toLowerCase();
+          if (role.toLowerCase().includes('devops') || role.toLowerCase().includes('specialist') || role.toLowerCase().includes('admin')) {
+            setRoleLevel(3);
+          } else if (role.toLowerCase().includes('engineer') || role.toLowerCase().includes('system') || role.toLowerCase().includes('fluid')) {
+            setRoleLevel(2);
+          } else {
+            setRoleLevel(1);
+          }
+        } else {
+          setRoleLevel(1);
+        }
+      } catch {
+        setRoleLevel(1);
+      }
+    };
+    syncUser();
+    window.addEventListener('storage', syncUser);
+    const interval = setInterval(syncUser, 1505);
+    return () => {
+      window.removeEventListener('storage', syncUser);
+      clearInterval(interval);
+    };
+  }, []);
+
+  const [customPresets, setCustomPresets] = React.useState<{ label: string; specs: SystemSpecs; species?: RodentSpecies; owepDesign?: 'flap_door' | 'flex_finger' | 'hybrid' }[]>(() => {
     try {
       const saved = localStorage.getItem('ericon_custom_presets_v1');
       return saved ? JSON.parse(saved) : [];
@@ -35,6 +87,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const [newPresetLabel, setNewPresetLabel] = React.useState('');
 
   const handleSavePreset = () => {
+    if (roleLevel < 2) {
+      alert('Action blocked: Your account restricts editing. Requires Clearance Level 2 (Lead Systems Engineer) or higher.');
+      return;
+    }
     if (!newPresetLabel.trim()) {
       alert('Please enter a custom preset label first.');
       return;
@@ -56,18 +112,29 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
   const handleDeletePreset = (label: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (roleLevel < 2) {
+      alert('Action blocked: Your account restricts editing. Requires Clearance Level 2 (Lead Systems Engineer) or higher.');
+      return;
+    }
     const updated = customPresets.filter(p => p.label !== label);
     setCustomPresets(updated);
     localStorage.setItem('ericon_custom_presets_v1', JSON.stringify(updated));
   };
 
-  const handleLoadPreset = (preset: { label: string; specs: SystemSpecs; species?: RodentSpecies; owepDesign?: 'flap_door' | 'flex_finger' }) => {
+  const handleLoadPreset = (preset: { label: string; specs: SystemSpecs; species?: RodentSpecies; owepDesign?: 'flap_door' | 'flex_finger' | 'hybrid' }) => {
+    if (roleLevel < 2) {
+      alert('Settings change blocked. Standard Scientific Investigators have read-only permissions.');
+      return;
+    }
     onChangeSpecs(preset.specs);
     if (preset.species) onChangeRodentSpecies(preset.species);
     if (preset.owepDesign) onChangeOwepDesign(preset.owepDesign);
   };
 
   const handleSliderChange = (field: keyof SystemSpecs, value: number) => {
+    if (roleLevel < 2) {
+      return;
+    }
     // Keep pressure P1 strictly >= P2 + 5 to avoid negative flows or static locks
     let newSpecs = { ...specs, [field]: value };
     
@@ -82,6 +149,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
   // Preset Configurations for ERICON rodent systems
   const applyPreset = (presetName: string) => {
+    if (roleLevel < 2) {
+      alert('Action blocked. Lead Systems Engineer credentials required to toggle automated pre-sets.');
+      return;
+    }
     switch (presetName) {
       case 'perimeter': // Hedgerow Field Mouse setting
         onChangeSpecs({
@@ -151,6 +222,41 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   return (
     <div className="bg-white border-2 border-slate-200 rounded-sm shadow-md p-6 flex flex-col gap-6" id="control-panel">
       
+      {/* Protected system equations and research schemas warning */}
+      {!isAdminLoggedIn && (
+        <div className="bg-amber-50 border-2 border-amber-300 text-amber-955 px-3 py-2.5 rounded flex items-start gap-2 pt-2.5 font-mono text-[10px] leading-relaxed shadow-xs" id="protected-equations-alert">
+          <div className="p-1 bg-amber-200 text-amber-950 rounded shrink-0">
+            <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+          </div>
+          <div>
+            <strong className="text-[10px] block font-black uppercase tracking-wider text-amber-900 mb-0.5">
+              🛡️ Protected System Constants
+            </strong>
+            Equations are read-only. Requires multi-step Administrator authentication (MFA Level 2) in the Developer Console to permit dynamic system recalibration.
+          </div>
+        </div>
+      )}
+
+      {roleLevel < 2 && (
+        <div className="bg-amber-50 border-2 border-amber-300 text-amber-905 px-3 py-2.5 rounded flex items-start gap-2 pt-2.5 font-mono text-[10px] leading-relaxed shadow-xs" id="rbac-lock-alert">
+          <div className="p-1 bg-amber-250 text-amber-900 rounded shrink-0">
+            <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+          </div>
+          <div>
+            <strong className="text-[10px] block font-black uppercase tracking-wider text-amber-900 mb-0.5">
+              🔒 SYSTEM PARAMETERS READ-ONLY
+            </strong>
+             Your active profile is certified as standard Scientific Investigator (Level 1). Dynamically adjusting core physical pressure levels, wall roughness indexes, and geometries requires Lead Systems Engineer (Clearance Level 2) authorization.
+          </div>
+        </div>
+      )}
+
       {/* Segment Header */}
       <div className="flex items-center justify-between border-b border-slate-200 pb-4" id="control-panel-header">
         <div className="flex items-center gap-2">
@@ -367,9 +473,21 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         {/* P1 (OWEP Inlet) Slider */}
         <div className="flex flex-col gap-2">
           <div className="flex justify-between items-center text-xs font-mono">
-            <span className="text-slate-600 font-bold uppercase">Inlet Pressure (P₁)</span>
-            <span className="font-semibold text-blue-900 bg-white border border-slate-300 px-2 py-0.5 rounded-sm text-[11px]">
-              {specs.p1.toFixed(0)} <span className="text-[9px] text-slate-400 font-normal">kPa</span>
+            <span className="text-slate-600 font-bold uppercase flex items-center">
+              <span>Inlet Pressure (P₁)</span>
+              <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-slate-200 dark:bg-slate-700 text-[9px] text-slate-550 dark:text-slate-300 hover:bg-emerald-100 hover:text-emerald-800 dark:hover:bg-emerald-900 dark:hover:text-emerald-100 font-bold transition relative group cursor-help ml-1.5" id="p1-biological-tooltip">
+                i
+                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-64 p-2.5 bg-slate-950 border border-emerald-500 text-slate-100 text-[10px] rounded shadow-2xl font-sans normal-case tracking-normal leading-normal whitespace-normal z-50">
+                  <strong className="block text-emerald-450 uppercase font-mono tracking-wider text-[9px] mb-1">Biological Impact</strong>
+                  Higher inlet pressure increases delivery force but elevates pneumatic shear stress. Keep below 150 kPa to protect rodent ear canals and prevent sudden pressure-differential trauma during capsule exit.
+                </span>
+              </span>
+            </span>
+            <span className="font-semibold text-blue-900 bg-white border border-slate-300 px-2 py-0.5 rounded-sm text-[11px] flex items-center gap-1">
+              <span>{specs.p1.toFixed(0)} kPa</span>
+              {unitPref === 'imperial' && (
+                <span className="text-[10px] text-blue-700 font-normal">/ {(specs.p1 * 0.145038).toFixed(1)} psi</span>
+              )}
             </span>
           </div>
           <input
@@ -378,9 +496,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             max="500"
             step="5"
             value={specs.p1}
+            disabled={roleLevel < 2}
             id="input-p1"
             onChange={(e) => handleSliderChange('p1', parseFloat(e.target.value))}
-            className="w-full accent-blue-900 h-1.5 bg-slate-200 rounded-sm appearance-none cursor-pointer"
+            className="w-full accent-blue-900 h-1.5 bg-slate-200 rounded-sm appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <div className="flex justify-between text-[9px] text-slate-400 font-mono">
             <span>100 kPa (Atm)</span>
@@ -392,9 +511,21 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         {/* P2 (EMA Hub Vacuum) Slider */}
         <div className="flex flex-col gap-2">
           <div className="flex justify-between items-center text-xs font-mono">
-            <span className="text-slate-600 font-bold uppercase">Vacuum Suction (P₂)</span>
-            <span className="font-semibold text-blue-900 bg-white border border-slate-300 px-2 py-0.5 rounded-sm text-[11px]">
-              {specs.p2.toFixed(0)} <span className="text-[9px] text-slate-400 font-normal">kPa</span>
+            <span className="text-slate-600 font-bold uppercase flex items-center">
+              <span>Vacuum Suction (P₂)</span>
+              <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-slate-200 dark:bg-slate-700 text-[9px] text-slate-550 dark:text-slate-300 hover:bg-emerald-100 hover:text-emerald-800 dark:hover:bg-emerald-900 dark:hover:text-emerald-100 font-bold transition relative group cursor-help ml-1.5" id="p2-biological-tooltip">
+                i
+                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-64 p-2.5 bg-slate-950 border border-emerald-500 text-slate-100 text-[10px] rounded shadow-2xl font-sans normal-case tracking-normal leading-normal whitespace-normal z-50">
+                  <strong className="block text-emerald-455 uppercase font-mono tracking-wider text-[9px] mb-1">Biological Impact</strong>
+                  Stronger suction vacuum (lower P₂) increases transit velocity, but drops below 60 kPa can induce acute pulmonary decompression and alveolar strain. Keep P₂ high (gentle suction) for fragile cohorts.
+                </span>
+              </span>
+            </span>
+            <span className="font-semibold text-blue-900 bg-white border border-slate-300 px-2 py-0.5 rounded-sm text-[11px] flex items-center gap-1">
+              <span>{specs.p2.toFixed(0)} kPa</span>
+              {unitPref === 'imperial' && (
+                <span className="text-[10px] text-blue-700 font-normal">/ {(specs.p2 * 0.145038).toFixed(1)} psi</span>
+              )}
             </span>
           </div>
           <input
@@ -403,9 +534,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             max="100"
             step="1"
             value={specs.p2}
+            disabled={roleLevel < 2}
             id="input-p2"
             onChange={(e) => handleSliderChange('p2', parseFloat(e.target.value))}
-            className="w-full accent-blue-900 h-1.5 bg-slate-200 rounded-sm appearance-none cursor-pointer"
+            className="w-full accent-blue-900 h-1.5 bg-slate-200 rounded-sm appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <div className="flex justify-between text-[9px] text-slate-400 font-mono">
             <span>10 kPa (Vac)</span>
@@ -432,11 +564,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 min="50"
                 max="300"
                 value={specs.diameter}
+                disabled={roleLevel < 2}
                 id="input-diameter"
                 onChange={(e) => handleSliderChange('diameter', Math.min(Math.max(parseInt(e.target.value) || 50, 50), 300))}
-                className="w-full text-xs font-mono font-bold text-slate-800 bg-white border border-slate-200 rounded-sm p-2 focus:border-blue-900 outline-none"
+                className="w-full text-xs font-mono font-bold text-slate-800 bg-white border border-slate-200 rounded-sm p-2 focus:border-blue-900 outline-none disabled:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
               />
-              <span className="absolute right-3 top-2.5 text-[9px] font-mono text-slate-400 uppercase">mm</span>
+              <span className="absolute right-3 top-2.5 text-[9px] font-mono text-slate-400 uppercase">
+                {unitPref === 'imperial' ? `mm / ${(specs.diameter * 0.0393701).toFixed(2)} in` : 'mm'}
+              </span>
             </div>
             <span className="text-[9px] text-slate-400 font-mono">Range: 50–300mm</span>
           </div>
@@ -449,11 +584,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 min="5"
                 max="250"
                 value={specs.length}
+                disabled={roleLevel < 2}
                 id="input-length"
                 onChange={(e) => handleSliderChange('length', Math.min(Math.max(parseInt(e.target.value) || 5, 5), 250))}
-                className="w-full text-xs font-mono font-bold text-slate-800 bg-white border border-slate-200 rounded-sm p-2 focus:border-blue-900 outline-none"
+                className="w-full text-xs font-mono font-bold text-slate-800 bg-white border border-slate-200 rounded-sm p-2 focus:border-blue-900 outline-none disabled:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
               />
-              <span className="absolute right-3 top-2.5 text-[9px] font-mono text-slate-400 uppercase">m</span>
+              <span className="absolute right-3 top-2.5 text-[9px] font-mono text-slate-400 uppercase">
+                {unitPref === 'imperial' ? `m / ${(specs.length * 3.28084).toFixed(1)} ft` : 'm'}
+              </span>
             </div>
             <span className="text-[9px] text-slate-400 font-mono">Range: 5–250m</span>
           </div>
@@ -464,7 +602,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-1 text-[10px] text-slate-500 font-mono font-bold uppercase">
               <Thermometer className="w-3.5 h-3.5 text-rose-500" />
-              Core Temp (T)
+              <span>Core Temp (T)</span>
+              <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-slate-200 dark:bg-slate-700 text-[9px] text-slate-550 dark:text-slate-300 hover:bg-emerald-100 hover:text-emerald-800 dark:hover:bg-emerald-900 dark:hover:text-emerald-100 font-bold transition relative group cursor-help ml-1" id="temperature-biological-tooltip">
+                i
+                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-64 p-2.5 bg-slate-950 border border-emerald-500 text-slate-100 text-[10px] rounded shadow-2xl font-sans normal-case tracking-normal leading-normal whitespace-normal z-50">
+                  <strong className="block text-emerald-450 uppercase font-mono tracking-wider text-[9px] mb-1">Biological Impact</strong>
+                  Extreme temperatures disrupt thermoregulation: cold &lt;15°C induces hypothermic stress and shivering vasoconstriction; heat &gt;30°C quickly triggers hyperthermic dehydration and fatal respiratory distress. Maintain 18–24°C standard ranges.
+                </span>
+              </span>
             </div>
             <div className="relative">
               <input
@@ -472,11 +617,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 min="-40"
                 max="100"
                 value={specs.temperature}
+                disabled={roleLevel < 2}
                 id="input-temperature"
                 onChange={(e) => handleSliderChange('temperature', Math.min(Math.max(parseInt(e.target.value) || 0, -40), 100))}
-                className="w-full text-xs font-mono font-bold text-slate-800 bg-white border border-slate-200 rounded-sm p-2 focus:border-blue-900 outline-none"
+                className="w-full text-xs font-mono font-bold text-slate-800 bg-white border border-slate-200 rounded-sm p-2 focus:border-blue-900 outline-none disabled:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
               />
-              <span className="absolute right-3 top-2.5 text-[9px] font-mono text-slate-400">°C</span>
+              <span className="absolute right-3 top-2.5 text-[9px] font-mono text-slate-400">
+                {tempPref === 'fahrenheit' ? `°C / ${(specs.temperature * 9 / 5 + 32).toFixed(1)} °F` : '°C'}
+              </span>
             </div>
           </div>
 
@@ -489,11 +637,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 max="0.02"
                 step="0.0001"
                 value={specs.roughness}
+                disabled={roleLevel < 2}
                 id="input-roughness"
                 onChange={(e) => handleSliderChange('roughness', Math.min(Math.max(parseFloat(e.target.value) || 0.0001, 0.0001), 0.02))}
-                className="w-full text-xs font-mono font-bold text-slate-800 bg-white border border-slate-200 rounded-sm p-2 focus:border-blue-900 outline-none"
+                className="w-full text-xs font-mono font-bold text-slate-800 bg-white border border-slate-200 rounded-sm p-2 focus:border-blue-900 outline-none disabled:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
               />
-              <span className="absolute right-3 top-2.5 text-[9px] font-mono text-slate-400">mm</span>
+              <span className="absolute right-3 top-2.5 text-[9px] font-mono text-slate-400">
+                {unitPref === 'imperial' ? `mm / ${(specs.roughness * 39.37).toFixed(1)} mils` : 'mm'}
+              </span>
             </div>
           </div>
         </div>
@@ -510,8 +661,11 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         <div className="flex flex-col gap-2">
           <div className="flex justify-between items-center text-xs font-mono">
             <span className="text-slate-600 font-bold uppercase">Cylinder Mass (m)</span>
-            <span className="font-semibold text-slate-800 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-sm text-[11px]">
-              {specs.capsuleMass} <span className="text-[9px] text-slate-400">g</span>
+            <span className="font-semibold text-slate-800 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-sm text-[11px] flex items-center gap-1">
+              <span>{specs.capsuleMass} g</span>
+              {unitPref === 'imperial' && (
+                <span className="text-[10px] text-slate-500 font-normal">/ {(specs.capsuleMass * 0.035274).toFixed(2)} oz</span>
+              )}
             </span>
           </div>
           <input
@@ -520,9 +674,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             max="4000"
             step="10"
             value={specs.capsuleMass}
+            disabled={roleLevel < 2}
             id="input-capsule-mass"
             onChange={(e) => handleSliderChange('capsuleMass', parseInt(e.target.value))}
-            className="w-full accent-blue-900 h-1.5 bg-slate-200 rounded-sm appearance-none cursor-pointer"
+            className="w-full accent-blue-900 h-1.5 bg-slate-200 rounded-sm appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           />
         </div>
 
@@ -537,9 +692,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 max="0.4"
                 step="0.01"
                 value={specs.capsuleFriction}
+                disabled={roleLevel < 2}
                 id="input-capsule-friction"
                 onChange={(e) => handleSliderChange('capsuleFriction', Math.min(Math.max(parseFloat(e.target.value) || 0.01, 0.01), 0.4))}
-                className="w-full text-xs font-mono font-bold text-slate-800 bg-white border border-slate-200 rounded-sm p-2 focus:border-blue-900 outline-none"
+                className="w-full text-xs font-mono font-bold text-slate-800 bg-white border border-slate-200 rounded-sm p-2 focus:border-blue-900 outline-none disabled:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
               />
             </div>
           </div>
@@ -553,9 +709,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 max="1.0"
                 step="0.01"
                 value={specs.capsuleClearance}
+                disabled={roleLevel < 2}
                 id="input-capsule-clearance"
                 onChange={(e) => handleSliderChange('capsuleClearance', Math.min(Math.max(parseFloat(e.target.value) || 0.5, 0.5), 1.0))}
-                className="w-full text-xs font-mono font-bold text-slate-800 bg-white border border-slate-200 rounded-sm p-2 focus:border-blue-900 outline-none"
+                className="w-full text-xs font-mono font-bold text-slate-800 bg-white border border-slate-200 rounded-sm p-2 focus:border-blue-900 outline-none disabled:bg-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
               />
             </div>
           </div>

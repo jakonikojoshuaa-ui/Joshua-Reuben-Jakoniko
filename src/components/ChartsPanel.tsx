@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { AreaChart, TrendingDown, HelpCircle, Eye, Download, FileText, ChevronDown, ChevronUp, Check, ShieldCheck } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { SystemSpecs, PhysicsCalculations } from '../types';
+import { getEriconLogoDataUrl, getLogoFitDimensions, getLogoAspectRatio } from '../utils/ericonLogoDraw';
 
 interface ChartsPanelProps {
   specs: SystemSpecs;
@@ -95,26 +96,53 @@ export const ChartsPanel: React.FC<ChartsPanelProps> = ({ specs, calc }) => {
     doc.text('Collaborative Research & Environmental Monitoring Environment (CRME)', 15, 30);
     doc.text(`VERIFICATION SECURITY DISPATCH ID: ${verId}`, 15, 36);
 
-    // Centered Logo
-    doc.setDrawColor(16, 185, 129);
-    doc.setLineWidth(1);
-    doc.rect(75, 70, 60, 60);
-    doc.rect(77, 72, 56, 56);
-    
-    doc.setTextColor(6, 78, 59);
-    doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(32);
-    doc.text('ER', 93, 105);
-    
-    doc.setFontSize(9);
-    doc.setFont('Helvetica', 'normal');
-    doc.text('SYSTEM SECURITY', 91, 115);
+    // Official High-Fidelity ERICON Logo rendering (Preserving exact aesthetic layout and detail)
+    const ericonLogoData = getEriconLogoDataUrl(400, 460);
+    if (ericonLogoData) {
+      const ratio = getLogoAspectRatio() || (162 / 186);
+      const cardHeight = 56;
+      const cardWidth = cardHeight * ratio;
+      const xPos = (210 - cardWidth) / 2;
+      const yPos = 62;
+
+      // Draw light container card for premium look
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(xPos, yPos, cardWidth, cardHeight, 3, 3, 'F');
+      
+      doc.setDrawColor(226, 232, 240); // Soft grey border
+      doc.setLineWidth(0.5);
+      doc.roundedRect(xPos, yPos, cardWidth, cardHeight, 3, 3, 'S');
+
+      // Center logo snugly inside the card
+      const padding = 3.6;
+      const logoW = cardWidth - (padding * 2);
+      const logoH = cardHeight - (padding * 2);
+      const logoX = xPos + padding;
+      const logoY = yPos + padding;
+
+      doc.addImage(ericonLogoData, 'PNG', logoX, logoY, logoW, logoH);
+    } else {
+      // Fallback if canvas is unavailable
+      doc.setDrawColor(16, 185, 129);
+      doc.setLineWidth(1);
+      doc.rect(75, 70, 60, 60);
+      doc.rect(77, 72, 56, 56);
+      
+      doc.setTextColor(6, 78, 59);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(32);
+      doc.text('ER', 93, 105);
+      
+      doc.setFontSize(9);
+      doc.setFont('Helvetica', 'normal');
+      doc.text('SYSTEM SECURITY', 91, 115);
+    }
 
     // Center divider
     doc.setDrawColor(229, 231, 235);
     doc.line(20, 155, 190, 155);
 
-    doc.setTextColor(15, 23, 42); // slate-900
+    doc.setTextColor(21, 70, 45); // ERICON deep dark green
     doc.setFont('Helvetica', 'bold');
     doc.setFontSize(11);
     
@@ -139,7 +167,7 @@ export const ChartsPanel: React.FC<ChartsPanelProps> = ({ specs, calc }) => {
     doc.rect(0, 265, 210, 32, 'F');
     doc.setFont('Helvetica', 'normal');
     doc.setFontSize(8);
-    doc.setTextColor(115, 115, 115);
+    doc.setTextColor(21, 70, 45);
     doc.text('This document constitutes classified biosecurity project outputs from the ERICON collaborative networks.', 15, 275);
     doc.text('Its modification, unauthorized reproduction, or distribution without appropriate PI authorization remains strictly prohibited.', 15, 281);
     doc.text('© 2026 ERICON(S) CRME Integration Framework.', 15, 287);
@@ -150,11 +178,17 @@ export const ChartsPanel: React.FC<ChartsPanelProps> = ({ specs, calc }) => {
     doc.rect(0, 0, 210, 22, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(10.5);
+    if (ericonLogoData) {
+      const headerDims = getLogoFitDimensions(22, 12, 'contain');
+      const xPos = 195 - headerDims.width;
+      const yPos = 5 + (12 - headerDims.height) / 2;
+      doc.addImage(ericonLogoData, 'PNG', xPos, yPos, headerDims.width, headerDims.height);
+    }
     doc.text('SECTION 1: SYSTEM SPECIFICATIONS & HARDWARE DEPLOYMENT', 15, 14);
 
     y = 35;
-    doc.setTextColor(30, 41, 59);
+    doc.setTextColor(21, 70, 45);
     doc.setFontSize(10);
     
     const drawSpecTableLine = (label: string, value: string) => {
@@ -185,10 +219,10 @@ export const ChartsPanel: React.FC<ChartsPanelProps> = ({ specs, calc }) => {
     const drawSimSpecLine = (label: string, val: string, unit: string) => {
       doc.setFont('Helvetica', 'bold');
       doc.setFontSize(9);
-      doc.setTextColor(71, 85, 105);
+      doc.setTextColor(21, 70, 45);
       doc.text(label, 15, y);
       doc.setFont('Helvetica', 'normal');
-      doc.setTextColor(15, 23, 42);
+      doc.setTextColor(21, 70, 45);
       doc.text(`${val} ${unit}`, 80, y);
       doc.setDrawColor(241, 245, 249);
       doc.line(15, y + 2, 195, y + 2);
@@ -210,7 +244,7 @@ export const ChartsPanel: React.FC<ChartsPanelProps> = ({ specs, calc }) => {
       doc.rect(0, 285, 210, 12, 'F');
       doc.setFont('Helvetica', 'normal');
       doc.setFontSize(7.5);
-      doc.setTextColor(100, 116, 139);
+      doc.setTextColor(21, 70, 45);
       doc.text('ERICON COLLABORATIVE SURVEYS (CRME) COMPREHENSIVE MEDICAL & DATA REPORT', 15, 292);
       doc.text(`Page ${num}`, 190, 292);
     };
@@ -222,11 +256,17 @@ export const ChartsPanel: React.FC<ChartsPanelProps> = ({ specs, calc }) => {
     doc.rect(0, 0, 210, 22, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(10.5);
+    if (ericonLogoData) {
+      const headerDims = getLogoFitDimensions(22, 12, 'contain');
+      const xPos = 195 - headerDims.width;
+      const yPos = 5 + (12 - headerDims.height) / 2;
+      doc.addImage(ericonLogoData, 'PNG', xPos, yPos, headerDims.width, headerDims.height);
+    }
     doc.text('SECTION 2: CORE FIELD & SURVEILLANCE PLOT INTERPRETATIONS', 15, 14);
 
     y = 35;
-    doc.setTextColor(15, 23, 42);
+    doc.setTextColor(21, 70, 45);
     doc.setFontSize(10);
 
     const drawChartSnapshotItem = (title: string, desc: string, interpretation: string) => {
@@ -237,7 +277,7 @@ export const ChartsPanel: React.FC<ChartsPanelProps> = ({ specs, calc }) => {
       
       doc.setFont('Helvetica', 'normal');
       doc.setFontSize(9);
-      doc.setTextColor(71, 85, 105);
+      doc.setTextColor(21, 70, 45);
       const textL = doc.splitTextToSize(desc, 175);
       doc.text(textL, 15, y);
       y += (textL.length * 4.2) + 1;
@@ -283,7 +323,13 @@ export const ChartsPanel: React.FC<ChartsPanelProps> = ({ specs, calc }) => {
     doc.rect(0, 0, 210, 22, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(10.5);
+    if (ericonLogoData) {
+      const headerDims = getLogoFitDimensions(22, 12, 'contain');
+      const xPos = 195 - headerDims.width;
+      const yPos = 5 + (12 - headerDims.height) / 2;
+      doc.addImage(ericonLogoData, 'PNG', xPos, yPos, headerDims.width, headerDims.height);
+    }
     doc.text('SECTION 2 & 3: ANALYTICS MAPS & DYNAMIC STATEMENTS', 15, 14);
 
     y = 35;
@@ -303,10 +349,10 @@ export const ChartsPanel: React.FC<ChartsPanelProps> = ({ specs, calc }) => {
     const drawStatRow = (label: string, value: string) => {
       doc.setFont('Helvetica', 'bold');
       doc.setFontSize(9);
-      doc.setTextColor(71, 85, 105);
+      doc.setTextColor(21, 70, 45);
       doc.text(label, 15, y);
       doc.setFont('Helvetica', 'normal');
-      doc.setTextColor(15, 23, 42);
+      doc.setTextColor(21, 70, 45);
       doc.text(value, 110, y);
       doc.setDrawColor(241, 245, 249);
       doc.line(15, y + 2, 195, y + 2);
@@ -330,7 +376,13 @@ export const ChartsPanel: React.FC<ChartsPanelProps> = ({ specs, calc }) => {
     doc.rect(0, 0, 210, 22, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(10.5);
+    if (ericonLogoData) {
+      const headerDims = getLogoFitDimensions(22, 12, 'contain');
+      const xPos = 195 - headerDims.width;
+      const yPos = 5 + (12 - headerDims.height) / 2;
+      doc.addImage(ericonLogoData, 'PNG', xPos, yPos, headerDims.width, headerDims.height);
+    }
     doc.text('SECTION 4 & 5: CORRESPONDENCE NOTES & SIGN-OFF CERTIFICATE', 15, 14);
 
     y = 35;
@@ -343,7 +395,7 @@ export const ChartsPanel: React.FC<ChartsPanelProps> = ({ specs, calc }) => {
     const drawNotesBox = (title: string, text: string) => {
       doc.setFont('Helvetica', 'bold');
       doc.setFontSize(9.5);
-      doc.setTextColor(30, 41, 59);
+      doc.setTextColor(21, 70, 45);
       doc.text(title, 15, y);
       y += 5;
 
@@ -357,7 +409,7 @@ export const ChartsPanel: React.FC<ChartsPanelProps> = ({ specs, calc }) => {
 
       doc.setFont('Helvetica', 'normal');
       doc.setFontSize(8.5);
-      doc.setTextColor(64, 64, 64);
+      doc.setTextColor(21, 70, 45);
       doc.text(noteLines, 19, y + 4.5);
       y += boxH + 8;
     };
@@ -379,12 +431,12 @@ export const ChartsPanel: React.FC<ChartsPanelProps> = ({ specs, calc }) => {
 
     doc.setFont('Helvetica', 'bold');
     doc.setFontSize(9);
-    doc.setTextColor(15, 23, 42);
+    doc.setTextColor(21, 70, 45);
     doc.text('VERIFICATE SECURITY DECREE & DEPLOYMENT ENVELOPE:', 19, y + 6);
 
     doc.setFont('Helvetica', 'normal');
     doc.setFontSize(8);
-    doc.setTextColor(71, 85, 105);
+    doc.setTextColor(21, 70, 45);
     doc.text(`Core Verification Token: ${verId}`, 19, y + 13);
     doc.text(`Framework Version Release: ERICON-S-CRME-V5.2`, 19, y + 18);
     doc.text(`System Timestamp Encryption: ${todayStr} (UTC+00)`, 19, y + 23);

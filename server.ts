@@ -4,12 +4,18 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
+import bcrypt from 'bcryptjs';
 
 // Load local environment variables
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// Locked accounts, rate limits and reset tokens structures
+const failedLoginAttempts: Record<string, { count: number; lockedUntil: number }> = {};
+const activeResetTokens: Record<string, { email: string; expiresAt: number }> = {};
+const apiRateLimits: Record<string, { requests: number; windowStart: number }> = {};
 
 app.use(express.json({ limit: '5mb' }));
 
@@ -36,6 +42,30 @@ function getGeminiClient(): GoogleGenAI {
 // 1. HEALTH ENDPOINT
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
+});
+
+// 1.1 LOGO PROXY ENDPOINT
+app.get('/api/ericon-logo', async (req, res) => {
+  try {
+    const googleId = '1yMBnZMQQwm1AcsWehQmlQtL_OoFDB7aC';
+    const driveUrl = `https://drive.google.com/thumbnail?id=${googleId}&sz=w1000`;
+    
+    const response = await fetch(driveUrl);
+    if (!response.ok) {
+      throw new Error(`Google Drive thumbnail fetch responded with status: ${response.status}`);
+    }
+    
+    const contentType = response.headers.get('content-type') || 'image/png';
+    const arrayBuffer = await response.arrayBuffer();
+    
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(Buffer.from(arrayBuffer));
+  } catch (error) {
+    console.error('[SERVER LOGO PROXY ERROR]:', error);
+    res.status(500).send('Network error or Google Drive access blocked');
+  }
 });
 
 // 2. GEMINI SPECIES ADVISOR & PHYSICS RETROFIT CONTEXT
@@ -90,7 +120,7 @@ Guidelines for your scientific responses:
       parts: [{ text: msg.content || msg.text || '' }]
     }));
 
-    // Generate output
+    // Generate output with active Search Grounding for real-time ecological and epidemiological checks
     const response = await ai.models.generateContent({
       model: 'gemini-3.5-flash',
       contents: [
@@ -100,6 +130,11 @@ Guidelines for your scientific responses:
       config: {
         systemInstruction,
         temperature: 0.75,
+        tools: [
+          {
+            googleSearch: {} // Active Google Search Grounding integration for live eco information
+          }
+        ]
       },
     });
 
@@ -119,11 +154,25 @@ Guidelines for your scientific responses:
 // 4. CREDENTIAL RECONSTRUCTION & COLLABORATION DATABASE
 // ==========================================
 
-const DB_FILE = path.join(process.cwd(), 'db_forum.json');
-
-// In-memory data tables mirrored to disk
+const DB_FILE = path.join(process.cwd(), 'db_forum.json');// In-memory data tables mirrored to disk
 let users: any[] = [];
 let comments: any[] = [];
+let projects: any[] = [];
+let userProjects: any[] = [];
+let auditLogs: any[] = [];
+
+// Helper to push security audit records representation
+function addAuditLog(type: string, description: string) {
+  const newLog = {
+    id: 'log-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+    timestamp: new Date().toISOString(),
+    type,
+    description
+  };
+  auditLogs.unshift(newLog);
+  if (auditLogs.length > 200) auditLogs.pop();
+  saveCollaborationDB();
+}
 
 // Seed default accounts and comments if not present
 function loadCollaborationDB() {
@@ -135,6 +184,9 @@ function loadCollaborationDB() {
         ...c,
         reactions: c.reactions || { insightful: 0, verified: 0, alert: 0, fluid: 0 }
       }));
+      projects = parsed.projects || [];
+      userProjects = parsed.userProjects || [];
+      auditLogs = parsed.auditLogs || [];
     } else {
       // Seed pre-verified active scientific personnel
       users = [
@@ -143,16 +195,18 @@ function loadCollaborationDB() {
           email: 's.jenkins@ericon.org',
           role: 'Senior Epidemiologist',
           institution: 'ERICON Ecological Group',
-          passwordHash: 'simple_hash_123456',
-          createdAt: new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString()
+          passwordHash: bcrypt.hashSync('123456', 10),
+          createdAt: new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString(),
+          isEmailVerified: true
         },
         {
           username: 'mvance',
           email: 'm.vance@reynolds.tech',
           role: 'Fluid Dynamics Specialist',
           institution: 'Reynolds Biotechnical',
-          passwordHash: 'simple_hash_123456',
-          createdAt: new Date(Date.now() - 45 * 24 * 3600 * 1000).toISOString()
+          passwordHash: bcrypt.hashSync('123456', 10),
+          createdAt: new Date(Date.now() - 45 * 24 * 3600 * 1000).toISOString(),
+          isEmailVerified: true
         }
       ];
 
@@ -194,10 +248,41 @@ function loadCollaborationDB() {
             rodentSpecies: 'field_mouse',
             survivalScore: 41
           },
-          reactions: { insightful: 1, verified: 0, alert: 2, fluid: 4 },
+          reactions: { insightful: 2, verified: 3, alert: 1, fluid: 2 },
           replies: []
         }
       ];
+
+      // Seed default research projects
+      projects = [
+        {
+          id: 'proj-1',
+          name: 'Morogoro Active Surveillance Project',
+          code: 'ERICON-7K92-FH44',
+          creator: 'sjenkins',
+          description: 'Surveillance of rodent vectors (Mastomys natalensis) in residential and agricultural areas of the Morogoro district.',
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: 'proj-2',
+          name: 'Pneumatic Vector Dynamics Lab',
+          code: 'ERICON-AA78-PT52',
+          creator: 'mvance',
+          description: 'Testing of polyamide-6 pipelines for high-speed fluid velocity testing and safe translocation.',
+          createdAt: new Date().toISOString()
+        }
+      ];
+
+      userProjects = [
+        { username: 'sjenkins', projectId: 'proj-1', role: 'Team Leader', joinedAt: new Date().toISOString() },
+        { username: 'mvance', projectId: 'proj-2', role: 'Team Leader', joinedAt: new Date().toISOString() },
+        { username: 'sjenkins', projectId: 'proj-2', role: 'Research Member', joinedAt: new Date().toISOString() }
+      ];
+
+      auditLogs = [
+        { id: 'log-1', timestamp: new Date().toISOString(), type: 'SECURITY', description: 'System database initialized and seed scientists registered.' }
+      ];
+
       saveCollaborationDB();
     }
   } catch (err) {
@@ -207,20 +292,42 @@ function loadCollaborationDB() {
 
 function saveCollaborationDB() {
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ users, comments }, null, 2), 'utf8');
+    fs.writeFileSync(DB_FILE, JSON.stringify({ users, comments, projects, userProjects, auditLogs }, null, 2), 'utf8');
   } catch (err) {
     console.error('[DATABASE WRITE FAULT]', err);
   }
 }
 
+
 // Instantiate storage mirror
 loadCollaborationDB();
 
+// Simple rate limiting middleware definition
+const checkRateLimit = (req: any, res: any, next: any) => {
+  const ip = req.ip || 'global';
+  const now = Date.now();
+  if (!apiRateLimits[ip]) {
+    apiRateLimits[ip] = { requests: 1, windowStart: now };
+    return next();
+  }
+  const data = apiRateLimits[ip];
+  if (now - data.windowStart > 60000) {
+    data.requests = 1;
+    data.windowStart = now;
+    return next();
+  }
+  data.requests++;
+  if (data.requests > 40) {
+    return res.status(429).json({ error: 'Too many authentication attempts. Please cool down for 60 seconds.' });
+  }
+  next();
+};
+
 // A. USER REGISTRATION
-app.post('/api/auth/register', (req, res) => {
-  const { username, email, password, role, institution } = req.body;
-  if (!username || !email || !password || !role || !institution) {
-    return res.status(400).json({ error: 'All parameters (username, email, password, role, institution) are strictly required' });
+app.post('/api/auth/register', checkRateLimit, (req, res) => {
+  const { username, email, password, role, institution, country, profession, classification, researchInterests, orcid_id, profileImage } = req.body;
+  if (!username || !email || !password) {
+    return res.status(400).json({ error: 'Username, Email and Password are required fields.' });
   }
 
   const normalizedUser = username.trim().toLowerCase();
@@ -231,17 +338,28 @@ app.post('/api/auth/register', (req, res) => {
     return res.status(400).json({ error: 'Username or Email is already registered inside ERICON directories' });
   }
 
+  const defaultRole = role ? role.trim() : 'Research Member';
+  const defaultInstitution = institution ? institution.trim() : 'Unassigned Institution';
+
   const newUser = {
     username: username.trim(),
     email: email.trim(),
-    role: role.trim(),
-    institution: institution.trim(),
-    passwordHash: 'simple_hash_' + password,
+    role: defaultRole,
+    institution: defaultInstitution,
+    country: (country || 'Tanzania').trim(),
+    profession: (profession || 'Ecological Scientist').trim(),
+    classification: (classification || 'Expert').trim(),
+    researchInterests: (researchInterests || 'Pneumatic vectors, epidemiology').trim(),
+    orcid_id: (orcid_id || '').trim(),
+    profileImage: profileImage || '',
+    passwordHash: bcrypt.hashSync(password, 10),
+    isEmailVerified: false,
     createdAt: new Date().toISOString()
   };
 
   users.push(newUser);
   saveCollaborationDB();
+  addAuditLog('SECURITY', `New staff scientist registration initialized: ${newUser.username} (${newUser.email}). Verification pending.`);
 
   res.json({
     success: true,
@@ -249,27 +367,81 @@ app.post('/api/auth/register', (req, res) => {
       username: newUser.username,
       email: newUser.email,
       role: newUser.role,
-      institution: newUser.institution
+      institution: newUser.institution,
+      country: newUser.country,
+      profession: newUser.profession,
+      classification: newUser.classification,
+      researchInterests: newUser.researchInterests,
+      orcid_id: newUser.orcid_id,
+      profileImage: newUser.profileImage,
+      isEmailVerified: newUser.isEmailVerified
     }
   });
 });
 
 // B. USER SIGN-IN / LOGIN
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', checkRateLimit, (req, res) => {
   const { usernameOrEmail, password } = req.body;
   if (!usernameOrEmail || !password) {
     return res.status(400).json({ error: 'Please submit credentials' });
   }
 
   const query = usernameOrEmail.trim().toLowerCase();
+  const lockout = failedLoginAttempts[query];
+  
+  if (lockout && lockout.count >= 5 && lockout.lockedUntil > Date.now()) {
+    const remaining = Math.ceil((lockout.lockedUntil - Date.now()) / 1000);
+    return res.status(423).json({ error: `Account temporarily locked out due to multiple failed verification attempts. Try again in: ${remaining} seconds.` });
+  }
+
   const matchedUser = users.find(u => 
-    (u.username.toLowerCase() === query || u.email.toLowerCase() === query) &&
-    (u.passwordHash === 'simple_hash_' + password || u.passwordHash === 'sha256_mock_hash' || u.passwordHash === 'sha255_mock_hash')
+    u.username.toLowerCase() === query || u.email.toLowerCase() === query
   );
 
   if (!matchedUser) {
     return res.status(401).json({ error: 'The provided credentials do not match parameters inside the ERICON staff directory' });
   }
+
+  // Support bcrypt comparison or seed mock passwords
+  let isValid = false;
+  if (matchedUser.passwordHash.startsWith('$2a$') || matchedUser.passwordHash.startsWith('$2b$')) {
+    isValid = bcrypt.compareSync(password, matchedUser.passwordHash);
+  } else {
+    isValid = (
+      matchedUser.passwordHash === 'simple_hash_' + password || 
+      matchedUser.passwordHash === password ||
+      matchedUser.passwordHash === 'sha256_mock_hash'
+    );
+    // Upgrade legacy coordinate in place
+    if (isValid) {
+      matchedUser.passwordHash = bcrypt.hashSync(password, 10);
+      saveCollaborationDB();
+    }
+  }
+
+  if (!isValid) {
+    if (!failedLoginAttempts[query]) {
+      failedLoginAttempts[query] = { count: 1, lockedUntil: 0 };
+    } else {
+      failedLoginAttempts[query].count++;
+    }
+
+    if (failedLoginAttempts[query].count >= 5) {
+      failedLoginAttempts[query].lockedUntil = Date.now() + 15000; // 15 seconds penalty
+      addAuditLog('SECURITY', `Access blockage penalty triggered for identifier: ${query} (5 failed logins).`);
+      return res.status(423).json({ error: 'Account temporarily locked out due to repeated login errors. Penalty countdown triggered: 15s.' });
+    }
+
+    addAuditLog('SECURITY', `Failed security clearance for: ${query}. (Failed coordinate: ${failedLoginAttempts[query].count}/5).`);
+    return res.status(401).json({ error: `The provided credentials do not match parameters inside the ERICON staff directory. Remaining attempts: ${5 - failedLoginAttempts[query].count}` });
+  }
+
+  // Clear failed metrics on success
+  if (failedLoginAttempts[query]) {
+    failedLoginAttempts[query].count = 0;
+  }
+
+  addAuditLog('SECURITY', `Security clearance granted for: ${matchedUser.username}. Logged in.`);
 
   res.json({
     success: true,
@@ -277,19 +449,227 @@ app.post('/api/auth/login', (req, res) => {
       username: matchedUser.username,
       email: matchedUser.email,
       role: matchedUser.role,
-      institution: matchedUser.institution
+      institution: matchedUser.institution,
+      country: matchedUser.country || 'Tanzania',
+      profession: matchedUser.profession || 'Ecological Scientist',
+      classification: matchedUser.classification || 'Expert',
+      researchInterests: matchedUser.researchInterests || 'Pneumatic vectors',
+      orcid_id: matchedUser.orcid_id || '',
+      profileImage: matchedUser.profileImage || '',
+      isEmailVerified: matchedUser.isEmailVerified !== false
     }
   });
 });
 
+// C. EMAIL ADDRESS VERIFICATION RESPONSE
+app.post('/api/auth/verify-email', (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email parameter required.' });
+  const matchedUser = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+  if (!matchedUser) {
+    return res.status(404).json({ error: 'Scientist account not found with this email coordinates' });
+  }
+  matchedUser.isEmailVerified = true;
+  saveCollaborationDB();
+  addAuditLog('SECURITY', `Email credentials verified successfully for user: ${matchedUser.username}`);
+  res.json({ success: true, user: { username: matchedUser.username, email: matchedUser.email, isEmailVerified: true } });
+});
+
+// D. SCIENTIFIC INTERACTION UPDATES DESIGN
+app.post('/api/auth/update-profile', (req, res) => {
+  const { username, country, institution, profession, classification, researchInterests, orcid_id, profileImage, role } = req.body;
+  if (!username) return res.status(400).json({ error: 'Username coordinates required' });
+  const matchedUser = users.find(u => u.username.toLowerCase() === username.trim().toLowerCase());
+  if (!matchedUser) {
+    return res.status(404).json({ error: 'Associated user database index not retrieved' });
+  }
+  if (country !== undefined) matchedUser.country = country.trim();
+  if (institution !== undefined) matchedUser.institution = institution.trim();
+  if (profession !== undefined) matchedUser.profession = profession.trim();
+  if (classification !== undefined) matchedUser.classification = classification.trim();
+  if (researchInterests !== undefined) matchedUser.researchInterests = researchInterests.trim();
+  if (orcid_id !== undefined) matchedUser.orcid_id = orcid_id.trim();
+  if (profileImage !== undefined) matchedUser.profileImage = profileImage;
+  if (role !== undefined) matchedUser.role = role.trim();
+
+  saveCollaborationDB();
+  addAuditLog('SECURITY', `Profile credentials updated for: ${matchedUser.username}`);
+  res.json({
+    success: true,
+    user: {
+      username: matchedUser.username,
+      email: matchedUser.email,
+      role: matchedUser.role,
+      institution: matchedUser.institution,
+      country: matchedUser.country,
+      profession: matchedUser.profession,
+      classification: matchedUser.classification,
+      researchInterests: matchedUser.researchInterests,
+      orcid_id: matchedUser.orcid_id,
+      profileImage: matchedUser.profileImage,
+      isEmailVerified: matchedUser.isEmailVerified !== false
+    }
+  });
+});
+
+// E. PASSWORDS RECOVERY SYSTEMS
+app.post('/api/auth/forgot-password', (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Please enter a valid email address' });
+  const query = email.trim().toLowerCase();
+  const matchedUser = users.find(u => u.email.toLowerCase() === query);
+  if (!matchedUser) {
+    return res.status(404).json({ error: 'User with this email is not present inside our scientist catalogs' });
+  }
+
+  // Generate a valid 5-min expiratory token code
+  const token = 'RESET-' + Math.random().toString(36).substring(2, 6).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+  activeResetTokens[token] = { email: matchedUser.email, expiresAt: Date.now() + 5 * 60 * 1000 };
+
+  addAuditLog('SECURITY', `Self-serve biosecurity password reset token requested for: ${matchedUser.username}`);
+
+  res.json({
+    success: true,
+    message: 'Forgot password reset code initialized and dispatched to proxy email successfully.',
+    token,
+    simulatedEmailInboxPayload: {
+      subject: '🔐 ERICON Networks Credentials Upgrade Directive',
+      text: `Hello Scientist ${matchedUser.username},\n\nA password reset request was initiated for your ERICON platform staff directory login. Your secure one-time token is: ${token}.\n\nThis token will expire in exactly 5 minutes due to LEVEL-5 security rules.\n\nUse this coordinate to upgrade your credentials.`
+    }
+  });
+});
+
+app.post('/api/auth/reset-password', (req, res) => {
+  const { token, newPassword } = req.body;
+  if (!token || !newPassword) {
+    return res.status(400).json({ error: 'Verification token and complex replacement password are required' });
+  }
+  const record = activeResetTokens[token];
+  if (!record) {
+    return res.status(400).json({ error: 'Reset token is invalid or has already been consumed' });
+  }
+  if (record.expiresAt < Date.now()) {
+    delete activeResetTokens[token];
+    return res.status(400).json({ error: 'Reset token has expired (5 minute maximum time limit surpassed)' });
+  }
+
+  const matchedUser = users.find(u => u.email.toLowerCase() === record.email.toLowerCase());
+  if (!matchedUser) {
+    return res.status(404).json({ error: 'Associated user credentials not found' });
+  }
+
+  matchedUser.passwordHash = bcrypt.hashSync(newPassword, 10);
+  delete activeResetTokens[token];
+  saveCollaborationDB();
+
+  addAuditLog('SECURITY', `Password upgraded successfully via secure reset token for user: ${matchedUser.username}`);
+
+  res.json({
+    success: true,
+    message: 'Biosecurity password updated and hashed successfully. Return to Sign In with your new password.'
+  });
+});
+
+// F. COLLABORATIVE ACTIONS DELEGATORS
+app.post('/api/projects/create', (req, res) => {
+  const { name, description, creator } = req.body;
+  if (!name || !creator) {
+    return res.status(400).json({ error: 'Project name and creator coordinates are required' });
+  }
+  const code = 'ERICON-' + Math.random().toString(36).substring(2, 6).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+  const id = 'proj-' + Date.now();
+  const newProject = {
+    id,
+    name: name.trim(),
+    description: (description || '').trim(),
+    code,
+    creator: creator.trim(),
+    createdAt: new Date().toISOString()
+  };
+  projects.push(newProject);
+  userProjects.push({
+    username: creator.trim(),
+    projectId: id,
+    role: 'Team Leader',
+    joinedAt: new Date().toISOString()
+  });
+  saveCollaborationDB();
+  addAuditLog('COLLABORATION', `New collaborative project created: "${newProject.name}" [Code: ${newProject.code}] by: ${creator}`);
+  res.json({ success: true, project: newProject });
+});
+
+app.post('/api/projects/accept-invite', (req, res) => {
+  const { inviteCodeOrLink, username } = req.body;
+  if (!inviteCodeOrLink || !username) {
+    return res.status(400).json({ error: 'Invitation link/code and username are required' });
+  }
+  const cleanInput = inviteCodeOrLink.trim();
+  let cleanCode = cleanInput;
+  if (cleanInput.includes('code=')) {
+    cleanCode = cleanInput.split('code=')[1].split('&')[0];
+  } else if (cleanInput.includes('/invite/')) {
+    cleanCode = cleanInput.split('/invite/')[1].split('?')[0];
+  }
+
+  const targetProject = projects.find(p => p.code.toUpperCase() === cleanCode.toUpperCase() || p.id === cleanCode);
+  if (!targetProject) {
+    return res.status(404).json({ error: 'The provided invite code or secure link was not found in active registries' });
+  }
+
+  const alreadyJoined = userProjects.some(up => up.username.toLowerCase() === username.trim().toLowerCase() && up.projectId === targetProject.id);
+  if (alreadyJoined) {
+    return res.status(400).json({ error: `You are already registered inside: "${targetProject.name}"` });
+  }
+
+  userProjects.push({
+    username: username.trim(),
+    projectId: targetProject.id,
+    role: 'Research Member',
+    joinedAt: new Date().toISOString()
+  });
+  saveCollaborationDB();
+  addAuditLog('COLLABORATION', `User "${username}" aligned with research project: "${targetProject.name}" via code "${cleanCode}".`);
+
+  res.json({ success: true, project: targetProject });
+});
+
+app.get('/api/projects/user-projects', (req, res) => {
+  const { username } = req.query;
+  if (!username) return res.status(400).json({ error: 'Missing username parameter' });
+  const j = userProjects.filter(up => up.username.toLowerCase() === (username as string).trim().toLowerCase());
+  const list = j.map(item => {
+    const p = projects.find(x => x.id === item.projectId);
+    return p ? { ...p, memberRole: item.role, joinedAt: item.joinedAt } : null;
+  }).filter(Boolean);
+
+  res.json({ success: true, projects: list });
+});
+
+app.get('/api/projects/all-projects', (req, res) => {
+  res.json({ success: true, projects });
+});
+
+app.get('/api/projects/audit-logs', (req, res) => {
+  res.json({ success: true, logs: auditLogs });
+});
+
 // C. RETRIEVE SCHOLARLY FORUM THREAD INDEX
 app.get('/api/forum/comments', (req, res) => {
+  const { channel } = req.query;
+  if (channel) {
+    // If a channel is specified, filter comments by it. Non-tagged comments default to "research".
+    const filteredComments = comments.filter(c => {
+      const msgChannel = c.channel || 'research';
+      return msgChannel === channel;
+    });
+    return res.json({ comments: filteredComments });
+  }
   res.json({ comments });
 });
 
 // D. POST TO SCHOLARLY FORUM WITH GRAPH ATTACHMENT
 app.post('/api/forum/comments', (req, res) => {
-  const { author, authorRole, authorInstitution, content, chartState } = req.body;
+  const { author, authorRole, authorInstitution, content, chartState, channel } = req.body;
   if (!author || !content || !content.trim()) {
     return res.status(400).json({ error: 'Scholarly posts must contain an author and a valid content body' });
   }
@@ -301,6 +681,7 @@ app.post('/api/forum/comments', (req, res) => {
     authorInstitution: (authorInstitution || 'ERICON Eco-Framework').trim(),
     timestamp: new Date().toISOString(),
     content: content.trim(),
+    channel: channel || 'research', // Default back to research channel if undefined
     chartState: chartState || null,
     reactions: { insightful: 0, verified: 0, alert: 0, fluid: 0 },
     replies: []

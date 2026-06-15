@@ -4,9 +4,10 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Play, RotateCcw, HelpCircle, ArrowRight, ShieldAlert, Cpu, Wrench, AlertTriangle, Clock, Download, Thermometer } from 'lucide-react';
+import { Play, RotateCcw, HelpCircle, ArrowRight, ShieldAlert, Cpu, Wrench, AlertTriangle, Clock, Download, Thermometer, Maximize2, Minimize2, X } from 'lucide-react';
 import { SystemSpecs, PhysicsCalculations, CapsuleSimulation, RodentSpecies } from '../types';
 import { SPECIES_PROFILES } from '../utils/physics';
+import { exportPremiumExcelSpreadsheet } from '../utils/premiumExport';
 
 interface InteractiveSchematicProps {
   specs: SystemSpecs;
@@ -15,10 +16,15 @@ interface InteractiveSchematicProps {
   onLaunchCapsule: () => void;
   onResetCapsule: () => void;
   rodentSpecies: RodentSpecies;
-  owepDesign: 'flap_door' | 'flex_finger';
+  owepDesign: 'flap_door' | 'flex_finger' | 'hybrid';
   survivalScore: number;
   lowSurvivalTimeMs: number;
   onSetLowSurvivalTime: (time: number | ((prev: number) => number)) => void;
+  visualMode?: 'standard' | 'comfort' | 'night';
+  isFloatingPip?: boolean;
+  onCloseFloatingPip?: () => void;
+  onExpandFloatingPip?: () => void;
+  auditLogs?: any[];
 }
 
 const generateInitialPressureData = (basePressure: number, turbulent: boolean) => {
@@ -42,6 +48,11 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
   survivalScore,
   lowSurvivalTimeMs,
   onSetLowSurvivalTime,
+  visualMode = 'standard',
+  isFloatingPip = false,
+  onCloseFloatingPip,
+  onExpandFloatingPip,
+  auditLogs = [],
 }) => {
   // Zoom & Pan responsive dragging workspace
   const [zoom, setZoom] = useState<number>(100);
@@ -50,8 +61,82 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
   const [isPanning, setIsPanning] = useState<boolean>(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
 
+  // Floating PiP collapsible tabs state: 'none', 'metrics', 'logs', 'diagnostics'
+  const [expandedPipTab, setExpandedPipTab] = useState<'none' | 'metrics' | 'logs' | 'diagnostics'>('none');
+
+  // Picture-in-Picture interactive overlay state
+  const [localIsPipActive, setLocalIsPipActive] = useState<boolean>(false);
+  const isPipActive = isFloatingPip || localIsPipActive;
+  const setIsPipActive = (val: boolean) => {
+    setLocalIsPipActive(val);
+    if (!val && onCloseFloatingPip) {
+      onCloseFloatingPip();
+    }
+  };
+
   // Simulator Display Mode State (Compact, Standard, Presentation, Full Research)
   const [simDisplayMode, setSimDisplayMode] = useState<'compact' | 'standard' | 'presentation' | 'research'>('standard');
+
+  // Hover Tooltip System for explaining sections
+  const [activeTooltip, setActiveTooltip] = useState<{
+    title: string;
+    flowDir: string;
+    pressureChange: string;
+    functionDesc: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Refs for Touch pinch-zoom events
+  const touchStartDistRef = React.useRef<number | null>(null);
+  const touchStartZoomRef = React.useRef<number>(100);
+
+  const handleMouseMoveTooltip = (e: React.MouseEvent, segmentId: string) => {
+    const parentRect = e.currentTarget.closest('.relative')?.getBoundingClientRect();
+    const x = e.clientX - (parentRect?.left || 0) + 15;
+    const y = e.clientY - (parentRect?.top || 0) + 15;
+
+    let title = '';
+    let flowDir = '';
+    let pressureChange = '';
+    let functionDesc = '';
+
+    if (segmentId === 'owep') {
+      title = 'One-Way Entry Port (OWEP) Inlet';
+      flowDir = specs.p2 > specs.p1 ? 'Reverse Bypass Flow (Right-to-Left)' : 'Inflow Intake Draft (Left-to-Right)';
+      pressureChange = `Inflow static pressure established at P1 = ${specs.p1.toFixed(1)} kPa`;
+      functionDesc = 'Mechanical low-friction gateway for capture of rodents; counterbalanced door or radial fingers allow entries but latches/blocks exit attempts.';
+    } else if (segmentId === 'transit') {
+      title = 'Central Transit Corridor (Polyamide-6 Duct)';
+      flowDir = `Axial direction flow speed: ${calc.velocity.toFixed(3)} m/s`;
+      pressureChange = `Linear degradation drop from P1 (${specs.p1.toFixed(1)} kPa) to P2 (${specs.p2.toFixed(1)} kPa)`;
+      functionDesc = 'Smooth wall insulation-lined transit tube where pneumatic dispatch carriers deliver physical items & specimen profiles.';
+    } else if (segmentId === 'port-alpha') {
+      title = 'Fiberoptic Port Alpha';
+      flowDir = 'Hermetic seal preserves axial flow vectors';
+      pressureChange = 'Localized negligible drop when fully closed';
+      functionDesc = 'Airtight inspection port with silicon gaskets for insertion of fiberoptic probes and camera logging sweeps.';
+    } else if (segmentId === 'port-beta') {
+      title = 'Inspection Hatch Beta';
+      flowDir = 'Hermetic pressure seal remains closed';
+      pressureChange = 'Negligible frictional boundary local pressure loss';
+      functionDesc = 'Secondary airtight maintenance and inspection interface, allowing calibration sweeps of optical dispatch tags.';
+    } else if (segmentId === 'terminal') {
+      title = 'Terminal Receiver Hub (Exit Compartment)';
+      flowDir = 'Outward discharge exhaustion vector';
+      pressureChange = `Exhaust baseline sink established at P2 = ${specs.p2.toFixed(1)} kPa`;
+      functionDesc = 'Secure collection cell with built-in sensors, deceleration bumper stops, and fan feedback vacuum channels.';
+    }
+
+    setActiveTooltip({
+      title,
+      flowDir,
+      pressureChange,
+      functionDesc,
+      x,
+      y
+    });
+  };
 
   // Maintain inspection history state with standard premium logs
   const [serviceHistory, setServiceHistory] = useState<{
@@ -343,165 +428,325 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
   const handleZoomPresetFull = () => { setZoom(130); setPanX(-100); setPanY(-40); };
 
   return (
-    <div className="bg-white border text-slate-800 border-slate-200 rounded-sm shadow-md overflow-hidden flex flex-col h-full" id="schematic-container">
-      {/* Schematic Header Toolbar */}
-      <div className="px-5 py-4 border-b border-slate-200 bg-white flex flex-col xl:flex-row xl:items-center justify-between gap-4" id="schematic-toolbar">
-        <div className="flex flex-col md:flex-row md:items-center gap-4">
+    <div 
+      className={isFloatingPip 
+        ? "fixed bottom-6 right-6 z-[200] w-[480px] bg-slate-900 border-2 border-slate-700 rounded-xl shadow-2xl flex flex-col p-4 text-white font-mono animate-scale-up h-auto"
+        : "bg-white border text-slate-800 border-slate-200 rounded-sm shadow-md overflow-hidden flex flex-col h-full"
+      } 
+      id="schematic-container"
+    >
+      {/* Mini Header for Floating PiP */}
+      {isFloatingPip && (
+        <div className="flex items-center justify-between border-b border-slate-800 pb-2.5 mb-2.5 select-none" id="floating-pip-titlebar">
           <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 bg-emerald-600 animate-pulse" />
-            <span className="text-xs font-mono font-bold tracking-widest text-emerald-900 uppercase">
-              ERICON Live Vector Network Overview // ERICON Eco-Framework
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">
+              Underground Fluidics PiP
             </span>
           </div>
-
-          {/* SIMULATION DISPLAY MODE PANEL (Compact, Standard, Presentation, Full Research) */}
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded border border-slate-200" id="sim-display-mode-selector">
-            <span className="text-[8.5px] uppercase font-mono font-bold text-slate-450 px-2">Display:</span>
-            {(['compact', 'standard', 'presentation', 'research'] as const).map((mode) => (
+          <div className="flex items-center gap-1.5">
+            {onExpandFloatingPip && (
               <button
-                key={mode}
                 type="button"
-                onClick={() => setSimDisplayMode(mode)}
-                className={`px-2 py-1 text-[9px] font-mono font-bold uppercase rounded transition-all cursor-pointer ${
-                  simDisplayMode === mode
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200'
-                }`}
+                onClick={onExpandFloatingPip}
+                className="p-1 hover:bg-slate-800 text-slate-300 hover:text-white rounded transition cursor-pointer"
+                title="Expand to Full Workspace"
               >
-                {mode}
+                <Maximize2 className="w-3.5 h-3.5" />
               </button>
-            ))}
+            )}
+            <button
+              type="button"
+              onClick={onCloseFloatingPip}
+              className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded transition cursor-pointer"
+              title="Close PiP Window"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
-        
-        {/* Play/Reset capsule controls and Zoom Preset */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* ZOOM & PAN CAD VIEW CONTROLS CONTAINER */}
-          <div className="flex items-center gap-1.5 bg-slate-900 text-slate-100 p-1 px-2 rounded border border-slate-800 text-[9.5px] font-mono shadow-xs select-none">
-            <span className="text-[8px] text-slate-400 font-bold tracking-wider">VIEWPORT:</span>
-            <button type="button" onClick={handleZoomOut} className="px-1.5 py-0.5 bg-slate-800 rounded font-black hover:bg-slate-700 cursor-pointer text-slate-200 transition" title="Zoom Out">-</button>
-            <span className="font-bold text-teal-400 w-8 text-center">{zoom}%</span>
-            <button type="button" onClick={handleZoomIn} className="px-1.5 py-0.5 bg-slate-800 rounded font-black hover:bg-slate-700 cursor-pointer text-slate-200 transition" title="Zoom In">+</button>
-            <div className="w-[1px] h-3.5 bg-slate-700 mx-1" />
-            <button type="button" onClick={handleZoomPresetFit} className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded transition cursor-pointer">Fit</button>
-            <button type="button" onClick={handleZoomPresetFull} className="px-2 py-0.5 bg-emerald-850 hover:bg-emerald-900 text-emerald-100 font-bold rounded transition cursor-pointer">Full View</button>
-            <button type="button" onClick={handleZoomReset} className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition cursor-pointer">Reset</button>
+      )}
+
+      {/* Schematic Header Toolbar */}
+      {!isFloatingPip && (
+        <div className="px-5 py-4 border-b border-slate-200 bg-white flex flex-col xl:flex-row xl:items-center justify-between gap-4" id="schematic-toolbar">
+          <div className="flex flex-col md:flex-row md:items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 bg-emerald-600 animate-pulse" />
+              <span className="text-xs font-mono font-bold tracking-widest text-[#15462D] dark:text-[#15462D] uppercase ericon-live-vector-text-header" id="ericon-live-vector-text">
+                ERICON Live Vector Network Overview // ERICON Eco-Framework
+              </span>
+            </div>
+
+            {/* SIMULATION DISPLAY MODE PANEL (Compact, Standard, Presentation, Full Research) */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded border border-slate-200" id="sim-display-mode-selector">
+              <span className="text-[8.5px] uppercase font-mono font-bold text-slate-450 px-2">Display:</span>
+              {(['compact', 'standard', 'presentation', 'research'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setSimDisplayMode(mode)}
+                  className={`px-2 py-1 text-[9px] font-mono font-bold uppercase rounded transition-all cursor-pointer ${
+                    simDisplayMode === mode
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200'
+                  }`}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          {/* Play/Reset capsule controls and Zoom Preset */}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* ZOOM & PAN CAD VIEW CONTROLS CONTAINER */}
+            <div className="flex flex-wrap items-center gap-1.5 bg-slate-900 text-slate-100 p-1 px-2 rounded border border-slate-800 text-[9.5px] font-mono shadow-xs select-none">
+              <span className="text-[8px] text-slate-400 font-bold tracking-wider">VIEWPORT:</span>
+              <button type="button" onClick={handleZoomOut} className="px-1.5 py-0.5 bg-slate-800 rounded font-black hover:bg-slate-700 cursor-pointer text-slate-200 transition" title="Zoom Out">-</button>
+              <span className="font-bold text-teal-400 w-8 text-center">{zoom}%</span>
+              <button type="button" onClick={handleZoomIn} className="px-1.5 py-0.5 bg-slate-800 rounded font-black hover:bg-slate-700 cursor-pointer text-slate-200 transition" title="Zoom In">+</button>
+              <div className="w-[1px] h-3.5 bg-slate-700 mx-1" />
+              <button type="button" onClick={handleZoomPresetFit} className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded transition cursor-pointer">Fit</button>
+              <button type="button" onClick={handleZoomPresetFull} className="px-2 py-0.5 bg-emerald-850 hover:bg-emerald-900 text-emerald-100 font-bold rounded transition cursor-pointer">Full View</button>
+              <button type="button" onClick={handleZoomReset} className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition cursor-pointer">Reset</button>
+              <div className="w-[1px] h-3.5 bg-slate-700 mx-1" />
+              <button 
+                type="button" 
+                onClick={() => setIsPipActive(!isPipActive)} 
+                className={`px-2 py-0.5 font-bold rounded transition cursor-pointer flex items-center gap-1 ${
+                  isPipActive 
+                    ? 'bg-rose-600 text-white hover:bg-rose-700 border border-rose-500' 
+                    : 'bg-blue-600 text-blue-50 hover:bg-blue-700 border border-blue-500/30'
+                }`}
+              >
+                <Maximize2 className="w-2.5 h-2.5" />
+                <span>PIP FOCUS</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {capsule.isCompleted && (
+                <span className="text-xs text-emerald-600 font-mono font-bold animate-pulse px-2.5 py-1 bg-emerald-50 rounded-sm border border-emerald-200">
+                  ● PAYLOAD DELIVERED
+                </span>
+              )}
+              <button
+                onClick={onLaunchCapsule}
+                type="button"
+                disabled={capsule.isActive}
+                id="btn-dispatch"
+                className={`px-4 py-1.5 rounded-sm font-mono text-xs uppercase tracking-wider font-bold transition-all ${
+                  capsule.isActive 
+                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm border border-blue-700'
+                }`}
+              >
+                <span className="flex items-center gap-1.5">
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  Dispatch Carrier
+                </span>
+              </button>
+              
+              <button
+                onClick={onResetCapsule}
+                type="button"
+                id="btn-reset-canister"
+                className="px-3 py-1.5 border-2 border-slate-200 hover:bg-slate-50 rounded-sm font-mono text-xs uppercase tracking-wider font-bold text-slate-600 transition-all"
+                title="Reset parameters and capsule position"
+              >
+                <span className="flex items-center gap-1">
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Reset
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Survival Index Telemetry Monitoring and Speedup Override Controls */}
+      {!isFloatingPip && (
+        <div className="px-5 py-3 bg-slate-900 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 text-slate-200 font-mono text-[10px] select-none" id="survival-telemetry-monitoring-bar">
+          <div className="flex items-center gap-2 flex-wrap md:flex-nowrap">
+            <span className="text-teal-400 font-bold uppercase tracking-wider flex items-center gap-1 shrink-0">
+              <Cpu className="w-3.5 h-3.5" /> Telemetry Detector:
+            </span>
+            <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 px-2.5 py-1 rounded-sm shrink-0">
+              <span className="text-slate-400">Current S.I.:</span>
+              <span className={`font-black tracking-tight ${survivalScore >= 50 ? 'text-emerald-400' : 'text-rose-400 animate-pulse font-extrabold'}`}>
+                {survivalScore}%
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 px-2.5 py-1 rounded-sm shrink-0">
+              <span className="text-slate-400">Stress Duration (&lt;50%):</span>
+              <span className={`font-bold tracking-tight ${isServiceRequired ? 'text-rose-400 font-black animate-pulse' : lowSurvivalTimeMs > 0 ? 'text-amber-400' : 'text-slate-300'}`}>
+                {formatHours(lowSurvivalTimeMs)} / 03:00:00
+              </span>
+            </div>
+            
+            {isServiceRequired ? (
+              <span className="text-[9px] font-bold bg-rose-950 border-2 border-rose-500/50 text-rose-300 px-2 py-0.5 rounded-xs uppercase tracking-wider animate-pulse flex items-center gap-1 font-mono">
+                <ShieldAlert className="w-3 h-3 text-rose-400 shrink-0" /> Service Required
+              </span>
+            ) : lowSurvivalTimeMs > 0 ? (
+              <span className="text-[9px] font-bold bg-amber-950/80 border border-amber-600/30 text-amber-300 px-1.5 py-0.5 rounded-sm uppercase tracking-wider flex items-center gap-1 font-mono">
+                <Clock className="w-3 h-3 text-amber-400 shrink-0 animate-spin-slow" /> Stress Accumulating...
+              </span>
+            ) : (
+              <span className="text-[9px] text-slate-400 uppercase tracking-widest bg-slate-950 px-2 py-0.5 rounded-sm border border-slate-850">
+                ● All Systems Nominally Sound
+              </span>
+            )}
           </div>
 
-          <div className="flex items-center gap-2">
-            {capsule.isCompleted && (
-              <span className="text-xs text-emerald-600 font-mono font-bold animate-pulse px-2.5 py-1 bg-emerald-50 rounded-sm border border-emerald-200">
-                ● PAYLOAD DELIVERED
+          {/* Cheat / Developer Fast Test Buttons for easy verification */}
+          <div className="flex items-center gap-2 flex-wrap md:flex-nowrap">
+            {survivalScore < 50 ? (
+              <button
+                onClick={() => {
+                  // Instantly advance to 3 hours of stress metrics (10,800,000 ms)
+                  onSetLowSurvivalTime(3 * 3600 * 1000);
+                }}
+                type="button"
+                className="px-2.5 py-1 bg-amber-600 border border-amber-700 hover:bg-amber-700 active:bg-amber-800 text-white rounded-sm font-black tracking-wide leading-tight transition cursor-pointer flex items-center gap-1"
+                title="Instantly fake/simulate environmental exposure to 3 hours of stress metrics to trigger Service Required state"
+              >
+                ⏩ Advance 3h Stress
+              </button>
+            ) : (
+              <span className="text-[8.5px] text-slate-500 italic font-medium font-mono">
+                (Reduce S.I. below 50% to activate Advance option)
               </span>
             )}
             <button
-              onClick={onLaunchCapsule}
+              onClick={() => onSetLowSurvivalTime(0)}
+              disabled={lowSurvivalTimeMs === 0}
               type="button"
+              className="px-2 py-1 bg-slate-800 border border-slate-700 hover:bg-slate-705 text-slate-300 disabled:opacity-30 disabled:pointer-events-none rounded-sm font-bold leading-tight transition cursor-pointer"
+            >
+              Reset Clock
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main Interactive CAD Blueprint Area (Adapts dynamically to Compact/Standard/PIP styles with glass fog backdrop) */}
+      <div className={
+        isFloatingPip
+          ? 'relative h-[195px] bg-[#0c1424] flex items-center justify-center p-2 rounded-md border border-slate-800 overflow-hidden select-none'
+          : isPipActive 
+            ? 'fixed inset-0 z-[100] bg-slate-950/70 backdrop-blur-md flex flex-col lg:flex-row items-center justify-center p-4 sm:p-6 md:p-8 animate-fade-in select-none' 
+            : simDisplayMode === 'compact'
+              ? 'relative h-[160px] min-h-[160px] bg-slate-50/50 flex items-center justify-center p-4 overflow-hidden border-b border-slate-200 select-none'
+              : 'relative flex-1 min-h-[400px] bg-slate-50/50 flex items-center justify-center p-6 overflow-hidden border-b border-slate-200 select-none'
+      } id="cad-blueprint-housing">
+        
+        {/* If PIP focus mode is active and not floating, display clear viewport instructions and simple Exit button in the top left */}
+        {isPipActive && !isFloatingPip && (
+          <div className="absolute top-4 left-4 z-[110] flex items-center gap-2">
+            <span className="text-[9px] bg-blue-600 text-white font-mono font-black tracking-widest px-2.5 py-0.5 rounded border border-blue-500 uppercase flex items-center gap-1.5 animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-white" />
+              PIP Focus Active
+            </span>
+            <span className="text-[9.5px] text-slate-300 font-mono font-medium uppercase tracking-wider hidden sm:inline">Interactive Vector Network Diagnostic</span>
+          </div>
+        )}
+
+        {/* If Floating PIP active, display inline run and reset controls right in the viewport area */}
+        {isFloatingPip && (
+          <div className="absolute top-2 left-2 z-[115] flex items-center gap-1 bg-slate-900/90 p-1 rounded border border-slate-800 shadow-lg">
+            <button
+              onClick={onLaunchCapsule}
               disabled={capsule.isActive}
-              id="btn-dispatch"
-              className={`px-4 py-1.5 rounded-sm font-mono text-xs uppercase tracking-wider font-bold transition-all ${
+              type="button"
+              className={`px-2 py-1 rounded text-[8.5px] font-bold uppercase transition flex items-center gap-1 cursor-pointer border ${
                 capsule.isActive 
-                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm border border-blue-700'
+                  ? 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed' 
+                  : 'bg-emerald-600 border-emerald-500 text-white hover:bg-emerald-705'
               }`}
             >
-              <span className="flex items-center gap-1.5">
-                <Play className="w-3.5 h-3.5 fill-current" />
-                Dispatch Carrier
-              </span>
+              <Play className="w-2.5 h-2.5 fill-current" />
+              <span>Run</span>
             </button>
-            
             <button
               onClick={onResetCapsule}
               type="button"
-              id="btn-reset-canister"
-              className="px-3 py-1.5 border-2 border-slate-200 hover:bg-slate-50 rounded-sm font-mono text-xs uppercase tracking-wider font-bold text-slate-600 transition-all"
-              title="Reset parameters and capsule position"
+              className="px-2 py-1 rounded text-[8.5px] font-bold uppercase bg-slate-800 border border-slate-705 text-slate-300 hover:bg-slate-700 hover:text-white transition cursor-pointer"
             >
-              <span className="flex items-center gap-1">
-                <RotateCcw className="w-3.5 h-3.5" />
-                Reset
-              </span>
+              Reset
             </button>
           </div>
-        </div>
-      </div>
+        )}
 
-      {/* Survival Index Telemetry Monitoring and Speedup Override Controls */}
-      <div className="px-5 py-3 bg-slate-900 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 text-slate-200 font-mono text-[10px] select-none" id="survival-telemetry-monitoring-bar">
-        <div className="flex items-center gap-2 flex-wrap md:flex-nowrap">
-          <span className="text-teal-400 font-bold uppercase tracking-wider flex items-center gap-1 shrink-0">
-            <Cpu className="w-3.5 h-3.5" /> Telemetry Detector:
-          </span>
-          <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 px-2.5 py-1 rounded-sm shrink-0">
-            <span className="text-slate-400">Current S.I.:</span>
-            <span className={`font-black tracking-tight ${survivalScore >= 50 ? 'text-emerald-400' : 'text-rose-400 animate-pulse font-extrabold'}`}>
-              {survivalScore}%
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 px-2.5 py-1 rounded-sm shrink-0">
-            <span className="text-slate-400">Stress Duration (&lt;50%):</span>
-            <span className={`font-bold tracking-tight ${isServiceRequired ? 'text-rose-400 font-black animate-pulse' : lowSurvivalTimeMs > 0 ? 'text-amber-400' : 'text-slate-300'}`}>
-              {formatHours(lowSurvivalTimeMs)} / 03:00:00
-            </span>
-          </div>
-          
-          {isServiceRequired ? (
-            <span className="text-[9px] font-bold bg-rose-950 border-2 border-rose-500/50 text-rose-300 px-2 py-0.5 rounded-xs uppercase tracking-wider animate-pulse flex items-center gap-1 font-mono">
-              <ShieldAlert className="w-3 h-3 text-rose-400 shrink-0" /> Service Required
-            </span>
-          ) : lowSurvivalTimeMs > 0 ? (
-            <span className="text-[9px] font-bold bg-amber-950/80 border border-amber-600/30 text-amber-300 px-1.5 py-0.5 rounded-sm uppercase tracking-wider flex items-center gap-1 font-mono">
-              <Clock className="w-3 h-3 text-amber-400 shrink-0 animate-spin-slow" /> Stress Accumulating...
-            </span>
-          ) : (
-            <span className="text-[9px] text-slate-400 uppercase tracking-widest bg-slate-950 px-2 py-0.5 rounded-sm border border-slate-850">
-              ● All Systems Nominally Sound
-            </span>
-          )}
-        </div>
-
-        {/* Cheat / Developer Fast Test Buttons for easy verification */}
-        <div className="flex items-center gap-2 flex-wrap md:flex-nowrap">
-          {survivalScore < 50 ? (
-            <button
-              onClick={() => {
-                // Instantly advance to 3 hours of stress metrics (10,800,000 ms)
-                onSetLowSurvivalTime(3 * 3600 * 1000);
-              }}
-              type="button"
-              className="px-2.5 py-1 bg-amber-600 border border-amber-700 hover:bg-amber-700 active:bg-amber-800 text-white rounded-sm font-black tracking-wide leading-tight transition cursor-pointer flex items-center gap-1"
-              title="Instantly fake/simulate environmental exposure to 3 hours of stress metrics to trigger Service Required state"
-            >
-              ⏩ Advance 3h Stress
-            </button>
-          ) : (
-            <span className="text-[8.5px] text-slate-500 italic font-medium font-mono">
-              (Reduce S.I. below 50% to activate Advance option)
-            </span>
-          )}
+        {/* Expanded Close button overlay top right */}
+        {isPipActive && !isFloatingPip && (
           <button
-            onClick={() => onSetLowSurvivalTime(0)}
-            disabled={lowSurvivalTimeMs === 0}
             type="button"
-            className="px-2 py-1 bg-slate-800 border border-slate-700 hover:bg-slate-705 text-slate-300 disabled:opacity-30 disabled:pointer-events-none rounded-sm font-bold leading-tight transition cursor-pointer"
+            onClick={() => setIsPipActive(false)}
+            className="absolute top-4 right-4 z-[120] p-1.5 bg-slate-800/80 hover:bg-slate-700/80 text-white rounded-full transition cursor-pointer flex items-center justify-center"
+            title="Exit Focus View"
           >
-            Reset Clock
+            <X className="w-5 h-5" />
           </button>
-        </div>
-      </div>
+        )}
 
-      {/* Main Interactive CAD Blueprint Area */}
-      <div className="relative flex-1 min-h-[400px] bg-slate-50/50 flex items-center justify-center p-6 overflow-hidden border-b border-slate-200 select-none">
-        
+        {/* Viewport controls for resizing bottom left while PIP in focus */}
+        {isPipActive && !isFloatingPip && (
+          <div className="absolute bottom-4 left-4 z-[110] flex gap-1.5 font-mono">
+            <button
+              type="button"
+              onClick={() => { setZoom(130); setPanX(-100); setPanY(-40); }}
+              className="px-2.5 py-1 bg-slate-800/80 border border-slate-705 text-slate-200 text-[9px] font-bold rounded hover:bg-slate-700 transition cursor-pointer"
+            >
+              Focus Core (130%)
+            </button>
+            <button
+              type="button"
+              onClick={() => { setZoom(100); setPanX(0); setPanY(0); }}
+              className="px-2.5 py-1 bg-slate-800/80 border border-slate-705 text-slate-200 text-[9px] font-bold rounded hover:bg-slate-700 transition cursor-pointer"
+            >
+              Reset View
+            </button>
+          </div>
+        )}
+
+        {/* Click to expand PIP / Zoom Button overlay when standard screen and not in PIP focus mode or Floating PiP */}
+        {!isPipActive && !isFloatingPip && (
+          <div className="absolute top-3 right-3 z-30 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIsPipActive(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-mono text-[9px] font-bold rounded shadow-md border border-blue-500/30 transition-all cursor-pointer select-none"
+              title="Open Dynamic Picture-in-Picture Focused View"
+            >
+              <Maximize2 className="w-3 h-3 animate-pulse" />
+              <span>PIP Focus View</span>
+            </button>
+          </div>
+        )}
+
         {/* Radial dot grid background according to Geometric Balance Design */}
-        <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(#cbd5e1 0.75px, transparent 0.75px)', backgroundSize: '24px 24px' }} />
-        
-        {/* Blueprint Layout Schema */}
+        <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(#cbd5e1 0.75px, transparent 0.75px)', backgroundSize: '14px 14px' }} />
+
         <svg 
           viewBox="0 0 920 380" 
           className="w-full max-w-[920px] h-auto relative z-10 font-mono"
           id="cad-blueprint-svg"
+          onDoubleClick={() => {
+            setZoom(100);
+            setPanX(0);
+            setPanY(0);
+          }}
+          onWheel={(e) => {
+            // Adjust zoom level dynamically
+            const scaleFactor = 1.05;
+            if (e.deltaY < 0) {
+              setZoom(prev => Math.min(prev * scaleFactor, 400));
+            } else {
+              setZoom(prev => Math.max(prev / scaleFactor, 30));
+            }
+          }}
           onMouseDown={(e) => {
             setIsPanning(true);
             setPanStart({ x: e.clientX - panX, y: e.clientY - panY });
@@ -513,6 +758,31 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
           }}
           onMouseUp={() => setIsPanning(false)}
           onMouseLeave={() => setIsPanning(false)}
+          onTouchStart={(e) => {
+            if (e.touches.length === 1) {
+              setIsPanning(true);
+              setPanStart({ x: e.touches[0].clientX - panX, y: e.touches[0].clientY - panY });
+            } else if (e.touches.length === 2) {
+              setIsPanning(false);
+              const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+              touchStartDistRef.current = dist;
+              touchStartZoomRef.current = zoom;
+            }
+          }}
+          onTouchMove={(e) => {
+            if (e.touches.length === 1 && isPanning) {
+              setPanX(e.touches[0].clientX - panStart.x);
+              setPanY(e.touches[0].clientY - panStart.y);
+            } else if (e.touches.length === 2 && touchStartDistRef.current !== null) {
+              const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+              const ratio = dist / touchStartDistRef.current;
+              setZoom(Math.min(Math.max(Math.round(touchStartZoomRef.current * ratio), 30), 400));
+            }
+          }}
+          onTouchEnd={() => {
+            setIsPanning(false);
+            touchStartDistRef.current = null;
+          }}
           style={{ cursor: isPanning ? 'grabbing' : 'grab', touchAction: 'none' }}
         >
           {/* DEFINITIONS IN SVG FOR ANIMATIONS AND FILTER BLURS */}
@@ -597,6 +867,11 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
           </g>
 
           {/* ================= LEFT INLET: OWEP INLET (H.P. P1) ================= */}
+          <g 
+            className="cursor-help transition-all group/owep hover:opacity-95" 
+            onMouseMove={(e) => handleMouseMoveTooltip(e, 'owep')} 
+            onMouseLeave={() => setActiveTooltip(null)}
+          >
           {/* Outer Housing Box */}
           <rect x="15" y="100" width="185" height="190" fill="#ffffff" stroke="#10b981" strokeWidth="2.5" rx="4" id="owep-housing-box" />
           <rect x="15" y="100" width="185" height="28" fill="#f0fdf4" stroke="#10b981" strokeWidth="0" />
@@ -606,17 +881,19 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
           <rect x="40" y="94" width="30" height="6" fill="#f0fdf4" stroke="#10b981" strokeWidth="1.5" rx="1" id="mport-inlet-hatch" />
           <line x1="55" y1="94" x2="55" y2="65" stroke="#10b981" strokeWidth="1" strokeDasharray="2,2" />
           <line x1="55" y1="65" x2="75" y2="65" stroke="#10b981" strokeWidth="1" strokeDasharray="2,2" />
-          <text x="80" y="62" textAnchor="start" className="text-[8px] font-bold fill-emerald-800 tracking-wider">
+          <text x="80" y="62" textAnchor="start" className="text-[8px] font-bold fill-emerald-800 tracking-wider ericon-schematic-ambient-text">
             ● OWEP MAINTENANCE PORT
           </text>
-          <text x="80" y="72" textAnchor="start" className="text-[7px] fill-slate-400 font-bold uppercase">
+          <text x="80" y="72" textAnchor="start" className="text-[7px] fill-slate-400 font-bold uppercase ericon-schematic-ambient-text">
             HINGE & STOPPER ASSEMBLY COMPLIANCE
           </text>
           
           {/* Name Label with wrap and presentation check */}
-          <text x="107" y="112" textAnchor="middle" className={`${simDisplayMode === 'presentation' ? 'text-[12.5px]' : simDisplayMode === 'compact' ? 'text-[9.5px]' : 'text-[11px]'} font-bold fill-emerald-950 tracking-wider font-mono`} id="owep-label-inlet">
-            <tspan x="107" dy="0">OWEP INFLOW</tspan>
-            <tspan x="107" dy="12">INLET (P1)</tspan>
+          <text x="107" y="110" textAnchor="middle" className={`${simDisplayMode === 'presentation' ? 'text-[12.5px]' : simDisplayMode === 'compact' ? 'text-[9.5px]' : 'text-[11px]'} font-bold fill-emerald-950 tracking-wider font-mono`} id="owep-label-inlet-1">
+            OWEP INFLOW
+          </text>
+          <text x="107" y="122" textAnchor="middle" className={`${simDisplayMode === 'presentation' ? 'text-[12.5px]' : simDisplayMode === 'compact' ? 'text-[9.5px]' : 'text-[11px]'} font-bold fill-emerald-950 tracking-wider font-mono`} id="owep-label-inlet-2">
+            INLET (P1)
           </text>
           
           {/* OWEP Physical Gate Micro-Visualization */}
@@ -646,7 +923,7 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
                   STOP_RIDGE
                 </text>
               </g>
-            ) : (
+            ) : owepDesign === 'flex_finger' ? (
               // Design Option B: Radial Flex-Finger Funnel pattern
               <g>
                 <rect x="0" y="0" width="45" height="81" fill="#f1f5f9" fillOpacity="0.8" stroke="#cbd5e1" strokeWidth="1" />
@@ -658,8 +935,27 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
                 <text x="22" y="-8" textAnchor="middle" className="text-[6.5px] font-bold fill-blue-600 font-mono">
                   FLEX PIN FINGERS
                 </text>
-                <text x="22" y="87" textAnchor="middle" className="text-[5.5px] font-bold fill-indigo-600 font-mono uppercase">
-                  BLUNT INTERLOCK
+              </g>
+            ) : (
+              // Design Option C: Hybrid Adaptive OWEP Design Option
+              <g>
+                <rect x="0" y="0" width="45" height="81" fill="#f1f5f9" fillOpacity="0.8" stroke="#cbd5e1" strokeWidth="1" />
+                <circle cx="22" cy="12" r="3" fill="#e2e8f0" stroke="#4f46e5" strokeWidth="1" />
+                <line 
+                  x1="22" 
+                  y1="12" 
+                  x2="22" 
+                  y2="71" 
+                  stroke="#4f46e5" 
+                  strokeWidth="2.5" 
+                  strokeLinecap="round"
+                  transform={specs.p1 > specs.p2 ? "rotate(10 22 12)" : "rotate(0 22 12)"}
+                  className="transition-transform duration-300"
+                />
+                <path d="M 3,20 L 15,35" stroke="#0f766e" strokeWidth="1.5" strokeLinecap="round" />
+                <path d="M 3,60 L 15,45" stroke="#0284c7" strokeWidth="1.5" strokeLinecap="round" />
+                <text x="22" y="-8" textAnchor="middle" className="text-[6.5px] font-bold fill-indigo-600 font-mono">
+                  HYBRID OWEP
                 </text>
               </g>
             )}
@@ -670,7 +966,7 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
           <circle cx="107" cy="190" r="5" fill="#10b981" />
           <text x="107" y="156" textAnchor="middle" className="text-[8px] fill-slate-500 font-bold tracking-tight">P1 SENSOR</text>
           <text x="107" y="226" textAnchor="middle" className="text-[14px] font-bold fill-emerald-800 font-mono">
-            {specs.p1.toFixed(1)} <tspan className="text-[10px] font-normal">kPa</tspan>
+            {specs.p1.toFixed(1)} kPa
           </text>
           <text x="107" y="238" textAnchor="middle" className="text-[8px] fill-slate-400">INFLOW ACTIVE ENGINE</text>
 
@@ -684,16 +980,22 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
           </g>
           
           {/* Air intake graphic label */}
-          <text x="12" y="132" transform="rotate(-90 12 132)" className="text-[8px] fill-slate-400 tracking-widest uppercase">
+          <text x="12" y="132" transform="rotate(-90 12 132)" className="text-[8px] fill-slate-400 tracking-widest uppercase ericon-schematic-ambient-text">
             Ambient Air Intake
           </text>
 
           {/* ================= HIGH PRESSURE REGULATOR / PRESSURE TAPS ================= */}
           {/* Leader line showing P1 boundary */}
           <path d="M 200,190 L 165,190" fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3,3" />
+          </g>
 
 
           {/* ================= CENTRAL TRANSIT TUBE: POLYAMIDE-6 ================= */}
+          <g 
+            className="cursor-help transition-all group/transit" 
+            onMouseMove={(e) => handleMouseMoveTooltip(e, 'transit')} 
+            onMouseLeave={() => setActiveTooltip(null)}
+          >
           {/* Diagonal hashing on outer boundary of tube representing the walls insulation/cladding */}
           <rect x="200" y="132" width="520" height="15" fill="url(#diagonal-hash)" stroke="#94a3b8" strokeWidth="1" />
           <rect x="200" y="228" width="520" height="15" fill="url(#diagonal-hash)" stroke="#94a3b8" strokeWidth="1" />
@@ -707,7 +1009,8 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
             className="cursor-pointer group/alpha hover:opacity-95" 
             onClick={() => setSelectedPort(selectedPort === 'alpha' ? null : 'alpha')}
             onMouseEnter={() => setHoveredPort('alpha')}
-            onMouseLeave={() => setHoveredPort(null)}
+            onMouseMove={(e) => handleMouseMoveTooltip(e, 'port-alpha')}
+            onMouseLeave={() => { setHoveredPort(null); setActiveTooltip(null); }}
             id="mport-alpha-group"
           >
             <rect 
@@ -788,7 +1091,8 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
             className="cursor-pointer group/beta hover:opacity-95" 
             onClick={() => setSelectedPort(selectedPort === 'beta' ? null : 'beta')}
             onMouseEnter={() => setHoveredPort('beta')}
-            onMouseLeave={() => setHoveredPort(null)}
+            onMouseMove={(e) => handleMouseMoveTooltip(e, 'port-beta')}
+            onMouseLeave={() => { setHoveredPort(null); setActiveTooltip(null); }}
             id="mport-beta-group"
           >
             <rect 
@@ -869,10 +1173,10 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
 
           {/* TRANSIT TUBE TEXT LABEL */}
           <g transform="translate(460, 93)" textAnchor="middle">
-            <text className="text-[12px] font-bold fill-slate-800 tracking-widest uppercase">
+            <text className="text-[12px] font-bold fill-slate-800 tracking-widest uppercase ericon-schematic-ambient-text">
               Polyamide-6 Transit Tube Core
             </text>
-            <text y="14" className="text-[9px] fill-slate-500 tracking-normal">
+            <text y="14" className="text-[9px] fill-slate-500 tracking-normal ericon-schematic-ambient-text">
               Internal Clearance Ø {specs.diameter}mm • Smooth Coated Core (Roughness ε = {specs.roughness} mm)
             </text>
             {/* Fine design line pointing from text to the tube */}
@@ -950,7 +1254,14 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
             </text>
           </g>
 
+          </g>
+
           {/* ================= RIGHT CHAMBER: TERMINAL EMA HUB (L.P. P2) ================= */}
+          <g 
+            className="cursor-help transition-all group/terminal hover:opacity-95" 
+            onMouseMove={(e) => handleMouseMoveTooltip(e, 'terminal')} 
+            onMouseLeave={() => setActiveTooltip(null)}
+          >
           {/* Outer Housing Box */}
           <rect x="720" y="100" width="170" height="180" fill="#ffffff" stroke="#1e3a8a" strokeWidth="2.5" rx="4" id="termination-hub-box" />
           <rect x="720" y="100" width="170" height="28" fill="#eff6ff" stroke="#1e3a8a" strokeWidth="0" />
@@ -960,10 +1271,10 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
           <rect x="825" y="94" width="30" height="6" fill="#eff6ff" stroke="#1e3a8a" strokeWidth="1.5" rx="1" id="mport-terminal-hatch" />
           <line x1="840" y1="94" x2="840" y2="65" stroke="#2563eb" strokeWidth="1" strokeDasharray="2,2" />
           <line x1="840" y1="65" x2="825" y2="65" stroke="#2563eb" strokeWidth="1" strokeDasharray="2,2" />
-          <text x="820" y="62" textAnchor="end" className="text-[8px] font-bold fill-blue-900 tracking-wider">
+          <text x="820" y="62" textAnchor="end" className="text-[8px] font-bold fill-blue-900 tracking-wider ericon-schematic-ambient-text">
             ● TERMINAL INSPECTION HATCH
           </text>
-          <text x="820" y="72" textAnchor="end" className="text-[7px] fill-slate-400 font-bold uppercase">
+          <text x="820" y="72" textAnchor="end" className="text-[7px] fill-slate-400 font-bold uppercase ericon-schematic-ambient-text">
             BYPASS ACTUATOR VALVES ACCESS
           </text>
           
@@ -977,7 +1288,7 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
           <circle cx="805" cy="180" r="6" fill="#2563eb" />
           <text x="805" y="150" textAnchor="middle" className="text-[9px] fill-slate-500">P2 PRESSURE VACUUM</text>
           <text x="805" y="222" textAnchor="middle" className="text-[15px] font-bold fill-blue-700 font-mono">
-            {specs.p2.toFixed(1)} <tspan className="text-[10px] font-normal">kPa</tspan>
+            {specs.p2.toFixed(1)} kPa
           </text>
           <text x="805" y="235" textAnchor="middle" className="text-[8px] fill-slate-400">LOW VACUUM SUCTION ENGINE</text>
 
@@ -1010,9 +1321,10 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
           </g>
           
           {/* Exhaust output labels */}
-          <text x="908" y="132" transform="rotate(90 908 132)" className="text-[8px] fill-slate-400 tracking-widest uppercase">
+          <text x="908" y="132" transform="rotate(90 908 132)" className="text-[8px] fill-slate-400 tracking-widest uppercase ericon-schematic-ambient-text">
             Discharge Exhaust Air
           </text>
+          </g>
 
 
           {/* ================= PNEUMATIC CAPSULE TRANSPORT CARRIER ================= */}
@@ -1164,7 +1476,7 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
           <line x1="200" y1="265" x2="300" y2="265" stroke="#94a3b8" strokeWidth="1" />
           <line x1="620" y1="265" x2="720" y2="265" stroke="#94a3b8" strokeWidth="1" />
           <path d="M 300, 265 L 430, 265 M 490, 265 L 620, 265" stroke="#94a3b8" strokeWidth="1" strokeDasharray="3,3" />
-          <text x="460" y="268" textAnchor="middle" className="text-[9px] fill-slate-500 font-normal">
+          <text x="460" y="268" textAnchor="middle" className="text-[9px] fill-slate-500 font-normal ericon-schematic-ambient-text">
             Pressure Gradient Direction: ΔP = {(specs.p1 - specs.p2).toFixed(1)} kPa Drop
           </text>
 
@@ -1230,6 +1542,388 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
           )}
           </g>
         </svg>
+
+      {/* Dynamic Pop-out Picture-In-Picture (PIP) Focused Interface with glass fog backdrop */}
+      {isPipActive && false && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/65 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 md:p-8 select-none animate-fade-in" id="pip-modal-overlay">
+          {/* Glass Card Container */}
+          <div className="relative w-full max-w-6xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl flex flex-col lg:flex-row overflow-hidden max-h-[90vh]" id="pip-modal-sheet">
+            
+            {/* Left Column: Focused blueprint */}
+            <div className="flex-1 bg-slate-50 dark:bg-slate-950 p-6 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 relative overflow-hidden min-h-[350px]">
+              {/* Radial dot grid background */}
+              <div className="absolute inset-0 opacity-40" style={{ backgroundImage: 'radial-gradient(#cbd5e1 0.75px, transparent 0.75px)', backgroundSize: '16px 16px' }} />
+              
+              {/* Top status bar inside PIP */}
+              <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
+                <span className="text-[9px] bg-blue-600 text-white font-mono font-black tracking-widest px-2.5 py-0.5 rounded border border-blue-500 uppercase flex items-center gap-1.5 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                  PIP Focus Active
+                </span>
+                <span className="text-[9.5px] text-slate-400 font-mono font-medium uppercase tracking-wider">Interactive Vector Network Diagnostic</span>
+              </div>
+
+              {/* Mobile Close Button (top-right of SVG pane) */}
+              <button
+                type="button"
+                onClick={() => setIsPipActive(false)}
+                className="absolute top-4 right-4 z-20 p-1.5 bg-slate-200 rounded-full text-slate-700 dark:text-slate-300 dark:hover:text-white transition cursor-pointer lg:hidden"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              {/* Viewport shortcuts bottom-left inside PIP */}
+              <div className="absolute bottom-4 left-4 z-10 flex gap-1.5 font-mono">
+                <button
+                  type="button"
+                  onClick={() => { setZoom(130); setPanX(-100); setPanY(-40); }}
+                  className="px-2.5 py-1 bg-white dark:bg-slate-800 border dark:border-slate-700 text-slate-700 dark:text-slate-250 text-[9px] font-bold rounded hover:bg-slate-100 transition cursor-pointer"
+                >
+                  Focus Core (130%)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setZoom(100); setPanX(0); setPanY(0); }}
+                  className="px-2.5 py-1 bg-white dark:bg-slate-800 border dark:border-slate-700 text-slate-700 dark:text-slate-250 text-[9px] font-bold rounded hover:bg-slate-100 transition cursor-pointer"
+                >
+                  Fit schematic
+                </button>
+              </div>
+
+              {/* The big SVG layout inside PIP */}
+              <div className="flex-1 flex items-center justify-center p-2.5 mt-6 relative overflow-hidden">
+                {null}
+              </div>
+
+              <div className="text-right text-[8px] text-slate-400 font-mono mt-2 uppercase tracking-wide">
+                SCROLL WHEEL TO ZOOM • PINCH GESTURE ON GRID SURFACE
+              </div>
+            </div>
+
+            {/* Right Column: Information sidebar */}
+            <div className="w-full lg:w-80 bg-white dark:bg-slate-900 border-t lg:border-t-0 border-slate-200 dark:border-slate-800 flex flex-col justify-between overflow-y-auto max-h-[90vh]">
+              {/* Header */}
+              <div className="p-5 border-b border-slate-200 dark:border-slate-800 text-left relative flex justify-between items-center">
+                <div>
+                  <span className="text-[8.5px] uppercase font-mono font-black tracking-widest text-[#15462D] dark:text-emerald-400 block mb-0.5">
+                    SYSTEM DIAGNOSTICS
+                  </span>
+                  <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                    Airflow Parameters
+                  </h3>
+                </div>
+                {/* Desktop Close action button */}
+                <button
+                  type="button"
+                  onClick={() => setIsPipActive(false)}
+                  className="p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-802 transition cursor-pointer hidden lg:block"
+                >
+                  <X className="w-5 h-5 pointer-events-auto" />
+                </button>
+              </div>
+
+              {/* Diagnostic Parameters List */}
+              <div className="p-5 flex-1 space-y-4 text-left font-mono">
+                {/* Specs Section */}
+                <div className="space-y-1">
+                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Physical Tunnel Setup</span>
+                  <div className="bg-slate-50 dark:bg-slate-955 p-2.5 rounded border dark:border-slate-850 space-y-1 text-[9.5px]">
+                    <div className="flex justify-between text-slate-500">
+                      <span>INLET PRESSURE (P1)</span>
+                      <strong className="text-slate-800 dark:text-slate-200">{specs.p1.toFixed(1)} kPa</strong>
+                    </div>
+                    <div className="flex justify-between text-slate-500">
+                      <span>SUCTION PRESSURE (P2)</span>
+                      <strong className="text-slate-800 dark:text-slate-200">{specs.p2.toFixed(1)} kPa</strong>
+                    </div>
+                    <div className="flex justify-between text-slate-500">
+                      <span>TUBE SPECIFICATION</span>
+                      <strong className="text-slate-800 dark:text-slate-202">Ø {specs.diameter}mm x {specs.length}m</strong>
+                    </div>
+                    <div className="flex justify-between text-slate-505">
+                      <span>ROUGHNESS VALUE (ε)</span>
+                      <strong className="text-slate-800 dark:text-slate-202">{specs.roughness} mm</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Aerodynamics Section */}
+                <div className="space-y-1">
+                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Aerodynamics &amp; Math</span>
+                  <div className="bg-slate-50 dark:bg-slate-955 p-2.5 rounded border dark:border-slate-850 space-y-1 text-[9.5px]">
+                    <div className="flex justify-between text-slate-500">
+                      <span>VELOCITY PROFILE (V1)</span>
+                      <strong className="text-blue-700 dark:text-blue-400">{(calc.velocity || 0).toFixed(2)} m/s</strong>
+                    </div>
+                    <div className="flex justify-between text-slate-500">
+                      <span>FLOW REGIME RATIO</span>
+                      <span className={`font-black uppercase text-[8.5px] px-1 rounded-xs ${
+                        calc.flowRegume === 'Laminar' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 text-[8px]' :
+                        calc.flowRegume === 'Transition' ? 'bg-amber-100 text-amber-850 dark:bg-amber-950/40 text-[8px]' :
+                        'bg-rose-100 text-rose-800 dark:bg-rose-950/40 animate-pulse text-[8px]'
+                      }`}>
+                        {calc.flowRegume}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-slate-505">
+                      <span>REYNOLDS NUMBER (RE)</span>
+                      <strong className="text-slate-800 dark:text-slate-202">{Math.round(calc.reynoldsNumber)}</strong>
+                    </div>
+                    <div className="flex justify-between text-slate-505">
+                      <span>FRICTION COEFFICIENT (F)</span>
+                      <strong className="text-slate-800 dark:text-slate-202">{calc.frictionFactor.toFixed(5)}</strong>
+                    </div>
+                    <div className="flex justify-between text-slate-505">
+                      <span>PNEUMATIC INTENSITY</span>
+                      <strong className="text-slate-800 dark:text-slate-202">{calc.pneumaticPower.toFixed(2)} W</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Biological Telemetry Section */}
+                <div className="space-y-1">
+                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Biological Exposure Logs</span>
+                  <div className="bg-slate-50 dark:bg-slate-955 p-2.5 rounded border dark:border-slate-850 space-y-1 text-[9.5px]">
+                    <div className="flex justify-between text-slate-505">
+                      <span>SURVIVAL SCORE INDEX</span>
+                      <strong className={`font-extrabold ${survivalScore >= 50 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600 animate-pulse'}`}>{survivalScore}%</strong>
+                    </div>
+                    <div className="flex justify-between text-slate-505">
+                      <span>TARGET SPECIMEN</span>
+                      <strong className="text-slate-800 dark:text-slate-202 uppercase truncate text-[8.5px] max-w-[130px]">{rodentSpecies.replace('_', ' ')}</strong>
+                    </div>
+                    <div className="flex justify-between text-slate-505">
+                      <span>ACCUMULATED STRESS</span>
+                      <strong className="text-slate-800 dark:text-slate-202">{formatHours(lowSurvivalTimeMs)}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status Footer */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-955 border-t border-slate-200 dark:border-slate-850 text-center text-[9px] font-semibold text-slate-400 uppercase font-mono">
+                🛡 ERICON PiP Focal Telemetry
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+        {/* Diagnostic side card overlay when PIP Focus mode is triggered as part of the smart picture view request */}
+        {isPipActive && !isFloatingPip && expandedPipTab === 'metrics' && (
+          <div className="w-full lg:w-80 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-2xl flex flex-col gap-4 max-h-[70vh] lg:max-h-none overflow-y-auto text-left font-mono z-[110] ml-0 lg:ml-6 mt-4 lg:mt-0 animate-scale-up md:absolute md:top-4 md:right-4 md:max-w-xs" id="pip-sidebar">
+            {/* Header */}
+            <div className="pb-3 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
+              <div>
+                <span className="text-[8px] uppercase font-bold tracking-widest text-[#15462D] dark:text-[#15462D] block ericon-pip-tag">PIP TELEMETRY</span>
+                <span className="text-xs font-black text-slate-850 dark:text-[#15462D] uppercase tracking-wider ericon-pip-title">CORE ENVELOPE</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExpandedPipTab('none')}
+                className="p-1 rounded-full text-slate-400 hover:text-slate-655 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-850 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Params block */}
+            <div className="space-y-4 text-[9.5px]">
+              <div className="space-y-1 bg-[#f4fbf7] dark:bg-[#f4fbf7] p-2.5 rounded border border-[#15462D]/35">
+                <span className="text-[8px] text-[#15462D] font-extrabold uppercase font-bold ericon-pip-section-header">Physics</span>
+                <div className="flex justify-between mt-1"><span className="text-[#15462D]/80 ericon-pip-key">V1 VELOCITY</span><strong className="text-[#15462D] font-bold ericon-pip-val">{(calc.velocity || 0).toFixed(2)} m/s</strong></div>
+                <div className="flex justify-between"><span className="text-[#15462D]/80 ericon-pip-key">REYNOLDS RE</span><strong className="text-[#15462D] font-bold ericon-pip-val">{Math.round(calc.reynoldsNumber)}</strong></div>
+                <div className="flex justify-between"><span className="text-[#15462D]/80 ericon-pip-key">FRICTION F</span><strong className="text-[#15462D] font-bold ericon-pip-val">{calc.frictionFactor.toFixed(5)}</strong></div>
+                <div className="flex justify-between"><span className="text-[#15462D]/80 ericon-pip-key">DIFFERENTIAL P</span><strong className="text-[#15462D] font-bold ericon-pip-val">{(specs.p1 - specs.p2).toFixed(1)} kPa</strong></div>
+              </div>
+
+              <div className="space-y-1 bg-[#f4fbf7] dark:bg-[#f4fbf7] p-2.5 rounded border border-[#15462D]/35">
+                <span className="text-[8px] text-[#15462D] font-extrabold uppercase font-bold ericon-pip-section-header">Bio Exposure</span>
+                <div className="flex justify-between mt-1"><span className="text-[9.5px] text-[#15462D]/80 font-semibold ericon-pip-key">SI SCORE</span><strong className="text-[#15462D] font-extrabold ericon-pip-val">{survivalScore}%</strong></div>
+                <div className="flex justify-between"><span className="text-[9.5px]/[normal] text-[#15462D]/80 font-semibold ericon-pip-key">SPECIMEN</span><strong className="text-[#15462D] font-bold ericon-pip-val truncate max-w-[100px]">{rodentSpecies.replace('_', ' ')}</strong></div>
+                <div className="flex justify-between"><span className="text-[9.5px]/[normal] text-[#15462D]/80 font-semibold ericon-pip-key">STRESS CLOCK</span><strong className="text-[#15462D] font-bold ericon-pip-stress-clock">{formatHours(lowSurvivalTimeMs)}</strong></div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setExpandedPipTab('none')}
+                className="w-full py-2 bg-slate-900 dark:bg-slate-800 hover:bg-slate-850 dark:hover:bg-slate-705 text-white font-bold rounded shadow transition text-center cursor-pointer uppercase text-[9px]"
+              >
+                Close Metrics Info
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Floating PiP Collapsible Tabs Deck */}
+        {isPipActive && (
+          <div className={
+            isFloatingPip
+              ? "absolute bottom-2 left-2 right-2 z-[115] flex gap-1 bg-slate-900/90 p-1 rounded-lg border border-slate-800 shadow-xl"
+              : "absolute bottom-6 left-1/2 -translate-x-1/2 z-[115] flex gap-2 bg-slate-900/90 backdrop-blur p-2 rounded-lg border border-slate-800 shadow-xl"
+          } id="pip-tabs-dock">
+            <button
+              onClick={() => setExpandedPipTab(prev => prev === 'metrics' ? 'none' : 'metrics')}
+              className={`flex-1 px-2.5 py-1.5 transition text-[9px] font-mono leading-tight font-black uppercase rounded border cursor-pointer ${
+                expandedPipTab === 'metrics' 
+                  ? 'bg-emerald-800 text-white border-emerald-600 animate-pulse font-bold' 
+                  : 'bg-slate-805 border-slate-700 text-slate-300 hover:bg-slate-700 hover:text-white'
+              }`}
+              type="button"
+            >
+              {expandedPipTab === 'metrics' ? '▼ Metrics' : '[ Metrics ]'}
+            </button>
+            
+            <button
+              onClick={() => setExpandedPipTab(prev => prev === 'logs' ? 'none' : 'logs')}
+              className={`flex-1 px-2.5 py-1.5 transition text-[9px] font-mono leading-tight font-black uppercase rounded border cursor-pointer ${
+                expandedPipTab === 'logs' 
+                  ? 'bg-blue-800 text-white border-blue-600 font-bold' 
+                  : 'bg-slate-805 border-slate-700 text-slate-300 hover:bg-slate-700 hover:text-white'
+              }`}
+              type="button"
+            >
+              {expandedPipTab === 'logs' ? '▼ Logs' : '[ Logs ]'}
+            </button>
+            
+            <button
+              onClick={() => setExpandedPipTab(prev => prev === 'diagnostics' ? 'none' : 'diagnostics')}
+              className={`flex-1 px-2.5 py-1.5 transition text-[9px] font-mono leading-tight font-black uppercase rounded border cursor-pointer ${
+                expandedPipTab === 'diagnostics' 
+                  ? 'bg-amber-800 text-white border-amber-600 font-bold' 
+                  : 'bg-slate-805 border-slate-700 text-slate-300 hover:bg-slate-700 hover:text-white'
+              }`}
+              type="button"
+            >
+              {expandedPipTab === 'diagnostics' ? '▼ Diagnostics' : '[ Diags ]'}
+            </button>
+          </div>
+        )}
+
+        {/* Collapsible expanded panels content for Floating mode metrics */}
+        {isFloatingPip && expandedPipTab === 'metrics' && (
+          <div className="absolute top-12 left-2 right-2 z-[115] bg-slate-950/95 border border-slate-850 rounded-lg p-3 shadow-xl space-y-1.5 text-left text-xs text-slate-200 font-mono animate-scale-up">
+            <div className="flex justify-between border-b border-slate-850 pb-1 mb-1 font-bold text-[8.5px]">
+              <span className="text-slate-400 uppercase">Physics Telemetry</span>
+              <span className="text-emerald-400 animate-pulse">● LIVE</span>
+            </div>
+            <div className="flex justify-between"><span className="text-slate-500">V1 Velocity:</span><strong className="text-emerald-400">{(calc.velocity || 0).toFixed(2)} m/s</strong></div>
+            <div className="flex justify-between"><span className="text-slate-505">Reynolds Re:</span><strong className="text-slate-300">{Math.round(calc.reynoldsNumber)}</strong></div>
+            <div className="flex justify-between"><span className="text-slate-505">Friction Factor f:</span><strong className="text-slate-300">{calc.frictionFactor.toFixed(5)}</strong></div>
+            <div className="flex justify-between"><span className="text-slate-505">Diff Pressure:</span><strong className="text-slate-300">{(specs.p1 - specs.p2).toFixed(1)} kPa</strong></div>
+            <div className="flex justify-between border-t border-slate-855 pt-1 mt-1 font-bold"><span className="text-slate-500">SI Score:</span><strong className="text-emerald-400">{survivalScore}%</strong></div>
+            <div className="flex justify-between"><span className="text-slate-505">Specimen:</span><strong className="text-slate-300 uppercase truncate text-[10px] max-w-[120px]">{rodentSpecies.replace('_', ' ')}</strong></div>
+          </div>
+        )}
+
+        {/* Collapsible expanded logs content */}
+        {isPipActive && expandedPipTab === 'logs' && (
+          <div className={
+            isFloatingPip
+              ? "absolute top-12 left-2 right-2 z-[115] bg-slate-950/95 border border-slate-850 rounded-lg p-3 shadow-xl space-y-1 font-mono text-left animate-scale-up max-h-[120px] overflow-y-auto"
+              : "absolute bottom-20 left-1/2 -translate-x-1/2 z-[115] bg-slate-900 border border-slate-800 rounded-lg p-4 shadow-xl space-y-1 w-80 font-mono text-left text-xs animate-scale-up max-h-[180px] overflow-y-auto text-slate-200"
+          } id="pip-logs-panel">
+            <div className="border-b border-slate-800 pb-1 mb-1 flex justify-between uppercase font-black text-[8px] text-slate-400 font-bold">
+              <span>Event Details</span>
+              <span>Change Records</span>
+            </div>
+            {auditLogs && auditLogs.length > 0 ? (
+              auditLogs.slice(0, 10).map((log, i) => (
+                <div key={log.id || i} className="flex justify-between items-start py-0.5 border-b border-slate-800/40 last:border-b-0 text-[10px]">
+                  <span className="text-slate-500 text-[8px] shrink-0 mr-1.5">{log.timestamp.includes(' ') ? log.timestamp.split(' ')[1] : log.timestamp}</span>
+                  <span className="text-slate-300 truncate font-semibold flex-1">Mod: {log.field.replace('_', ' ').substring(0, 14)}</span>
+                  <span className="text-emerald-450 font-bold shrink-0 font-bold">→ {log.newVal}</span>
+                </div>
+              ))
+            ) : (
+              <div className="py-2 text-center text-slate-500 uppercase text-[9px] font-bold">● Zero parameter logs logged yet.</div>
+            )}
+          </div>
+        )}
+
+        {/* Collapsible expanded diagnostics content */}
+        {isFloatingPip && expandedPipTab === 'diagnostics' && (
+          <div className="absolute top-12 left-2 right-2 z-[115] bg-slate-955/95 border border-slate-850 rounded-lg p-3 shadow-xl space-y-2 text-left text-xs text-slate-200 font-mono animate-scale-up">
+            <div>
+              <span className="text-slate-400 uppercase font-black text-[8px] block mb-1 font-bold border-b border-slate-850 pb-0.5">Flow Regimes Legend</span>
+              <div className="grid grid-cols-2 gap-1 text-[8.5px]">
+                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-blue-500 inline-block" /> <span className="text-slate-355 font-semibold">Laminar</span></div>
+                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-amber-500 inline-block" /> <span className="text-slate-355 font-semibold">Transition</span></div>
+                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-rose-500 inline-block" /> <span className="text-slate-355 font-semibold">Turbulent</span></div>
+                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-emerald-500 inline-block" /> <span className="text-slate-355 font-semibold">Negative Zone</span></div>
+              </div>
+            </div>
+            <div className="border-t border-slate-850 pt-1.5 mt-1">
+              <span className="text-slate-400 uppercase font-black text-[8px] block font-bold">CAD Tips</span>
+              <p className="text-slate-400 text-[8.5px] leading-normal leading-[1.2]">Drag to pan model path. Mouse scrollwheel triggers live zoom metrics.</p>
+            </div>
+          </div>
+        )}
+
+        {/* FLOATING LEGEND COVER */}
+        {(!isPipActive || (isPipActive && expandedPipTab === 'diagnostics')) && !isFloatingPip && (
+          <div id="ericon-floating-legend-cover" className="absolute bottom-4 left-4 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-lg rounded-sm p-3 font-mono text-[9px] w-52 flex flex-col gap-2">
+            <div className="font-extrabold text-slate-850 dark:text-slate-100 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 pb-1 text-[9.5px]">
+              Flow Regime Legend
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3.5 h-3.5 rounded-xs bg-blue-500 shadow-xs border border-blue-600 shrink-0" />
+              <span className="font-bold text-slate-700 dark:text-slate-350">Blue</span>
+              <span className="text-slate-450 dark:text-slate-500 font-normal">— Laminar Flow</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3.5 h-3.5 rounded-xs bg-amber-500 shadow-xs border border-amber-600 shrink-0" />
+              <span className="font-bold text-slate-700 dark:text-slate-350">Orange</span>
+              <span className="text-slate-450 dark:text-slate-500 font-normal">— Transitional</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3.5 h-3.5 rounded-xs bg-rose-500 shadow-xs border border-rose-600 shrink-0" />
+              <span className="font-bold text-slate-700 dark:text-slate-350">Red</span>
+              <span className="text-slate-450 dark:text-slate-500 font-normal">— Turbulent Flow</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3.5 h-3.5 rounded-xs bg-emerald-500 shadow-xs border border-emerald-600 shrink-0" />
+              <span className="font-bold text-slate-700 dark:text-slate-350">Green</span>
+              <span className="text-slate-455 dark:text-slate-500 font-normal">— Negative Zone</span>
+            </div>
+          </div>
+        )}
+
+        {/* CAD INSTRUCTIONS DRAWER OVERLAY */}
+        {(!isPipActive || (isPipActive && expandedPipTab === 'diagnostics')) && !isFloatingPip && (
+          <div id="ericon-cad-viewport-guide" className="absolute bottom-4 right-4 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 shadow-lg rounded-sm p-2.5 font-mono text-[8.5px] text-slate-500 dark:text-slate-400 leading-normal max-w-[210px]">
+            <span className="font-bold text-slate-700 dark:text-slate-200 uppercase tracking-tight">CAD VIEWPORT GUIDE:</span>
+            <ul className="list-disc pl-3.5 mt-1 space-y-0.5">
+              <li>Scroll <strong className="text-slate-700 dark:text-slate-350">Mouse Wheel</strong> to Zoom</li>
+              <li>Press & <strong className="text-slate-700 dark:text-slate-350">Drag Mouse</strong> to Pan</li>
+              <li><strong className="text-slate-700 dark:text-slate-350">Pinch gesture</strong> on touchscreens</li>
+              <li><strong className="text-slate-700 dark:text-slate-350">Double-Click</strong> to Reset viewport</li>
+            </ul>
+          </div>
+        )}
+
+        {/* FULL CUSTOM FLOATING TARGET TOOLTIP */}
+        {activeTooltip && (
+          <div 
+            style={{ left: `${activeTooltip.x}px`, top: `${activeTooltip.y}px` }}
+            className="absolute z-50 bg-slate-950/95 backdrop-blur-md border border-slate-800 shadow-2xl rounded-sm p-3.5 w-[290px] text-slate-200 font-mono text-[9px] pointer-events-none transition-all duration-75 flex flex-col gap-1.5"
+          >
+            <div className="font-black text-rose-400 uppercase border-b border-slate-800 pb-1 text-[9.5px] tracking-wide">
+              {activeTooltip.title}
+            </div>
+            <div className="flex flex-col gap-0.5 mt-0.5">
+              <span className="text-slate-500 font-bold uppercase tracking-wider text-[7.5px]">Airflow Direction:</span>
+              <span className="text-blue-300 font-medium">{activeTooltip.flowDir}</span>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-slate-500 font-bold uppercase tracking-wider text-[7.5px]">Pressure Changes:</span>
+              <span className="text-amber-300 font-medium">{activeTooltip.pressureChange}</span>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-slate-500 font-bold uppercase tracking-wider text-[7.5px]">Tunnel Segment Function:</span>
+              <span className="text-slate-300 leading-normal leading-[1.2]">{activeTooltip.functionDesc}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* MAINTENANCE DETAIL VIEW OVERLAY / EXPANDABLE PANEL */}
@@ -1562,33 +2256,39 @@ export const InteractiveSchematic: React.FC<InteractiveSchematicProps> = ({
                     type="button"
                     onClick={() => {
                       const logs = serviceHistory[selectedPort].logs;
-                      const headers = ['ID', 'Date', 'Type', 'Inspector', 'Details', 'Status'];
-                      const csvRows = [
-                        headers.join(','),
-                        ...logs.map(log => [
-                          log.id,
-                          log.date,
-                          log.type,
-                          log.inspector,
-                          `"${(log.details || '').replace(/"/g, '""')}"`,
-                          log.status
-                        ].join(','))
-                      ];
-                      const csvBlob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-                      const url = URL.createObjectURL(csvBlob);
-                      const link = document.createElement("a");
-                      link.setAttribute("href", url);
-                      link.setAttribute("download", `maintenance_${selectedPort}_history_${new Date().toISOString().slice(0, 10)}.csv`);
-                      document.body.appendChild(link);
-                      link.click();
-                      document.body.removeChild(link);
-                      URL.revokeObjectURL(url);
+                      const headers = ['Record ID', 'Service Date', 'Activity Type', 'Assigned Inspector', 'Detailed Work Summary', 'Post-Service Status'];
+                      const rows = logs.map(log => [
+                        log.id,
+                        log.date,
+                        log.type,
+                        log.inspector,
+                        log.details || '',
+                        log.status
+                      ]);
+
+                      exportPremiumExcelSpreadsheet(
+                        `ERICON_Maintenance_Port_${selectedPort}_History_${new Date().toISOString().slice(0, 10)}.xls`,
+                        `Subsystem Maintenance History Ledger: Port ${selectedPort}`,
+                        'Integrated Mechanical Inspection and Verification Tracking Archive',
+                        headers,
+                        rows,
+                        {
+                          'System Hub Port': `Port ${selectedPort} Link Node`,
+                          'Clearance Level': 'Authenticated Level-3 Bio-Security Engineers',
+                          'Verification Registry': 'REG-MAINT-F80',
+                          'Record Count': `${logs.length} maintenance entries`,
+                          'Date Generated': new Date().toUTCString(),
+                          'Report Version': 'v4.5-Hardware'
+                        }
+                      );
+
+                      window.dispatchEvent(new CustomEvent('ericon_show_toast', { detail: { message: "🎉 Maintenance Ledger Workbook generated according to ERICON Brand Standard!", type: "success" } }));
                     }}
                     className="bg-slate-800 hover:bg-slate-700 hover:text-white border border-slate-700 hover:border-slate-600 font-mono py-0.5 px-2 rounded-xs flex items-center gap-1 cursor-pointer transition text-[8.5px] font-bold text-teal-400 uppercase shadow-xs"
                     id="export-csv-btn"
                   >
                     <Download className="w-2.5 h-2.5 shrink-0" />
-                    Export CSV
+                    Export Excel
                   </button>
                 </div>
               </div>
