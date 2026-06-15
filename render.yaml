@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: ericon-air-transport-simulator
+    name: ericon-rodent-research-and-monitoring
     runtime: node
     plan: free
     buildCommand: npm install && npm run build
