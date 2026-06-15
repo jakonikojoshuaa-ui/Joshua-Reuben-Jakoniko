@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: ericon-rodent-research-and-monitoring
+    name: ericon-rodent-research-and-monitoring-app
     runtime: node
     plan: free
     buildCommand: npm install && npm run build
