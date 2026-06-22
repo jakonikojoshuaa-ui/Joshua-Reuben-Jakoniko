@@ -215,6 +215,49 @@ export default function App() {
     window.dispatchEvent(new Event('storage'));
   }, [tempUnit]);
 
+  const showToast = (message: string, type: 'success' | 'warning' | 'info' | 'error' = 'info') => {
+    window.dispatchEvent(new CustomEvent('ericon_show_toast', { detail: { message, type } }));
+  };
+
+  // 30-minute Inactivity Automatic Logout
+  useEffect(() => {
+    if (currentUser === null) return;
+
+    let lastActivityTime = Date.now();
+    const INACTIVITY_LIMIT = 30 * 60 * 1000; // 30 minutes in milliseconds
+
+    const resetActivity = () => {
+      lastActivityTime = Date.now();
+    };
+
+    const checkInactivity = () => {
+      const now = Date.now();
+      if (now - lastActivityTime >= INACTIVITY_LIMIT) {
+        // Log out the user automatically
+        localStorage.removeItem('ericon_logged_scientist');
+        setCurrentUser(null);
+        setActiveTab('home');
+        showToast('You have been logged out due to 30 minutes of inactivity.', 'warning');
+      }
+    };
+
+    window.addEventListener('mousemove', resetActivity);
+    window.addEventListener('keydown', resetActivity);
+    window.addEventListener('click', resetActivity);
+    window.addEventListener('scroll', resetActivity);
+
+    // Keep checking every 10 seconds
+    const intervalId = setInterval(checkInactivity, 10000);
+
+    return () => {
+      window.removeEventListener('mousemove', resetActivity);
+      window.removeEventListener('keydown', resetActivity);
+      window.removeEventListener('click', resetActivity);
+      window.removeEventListener('scroll', resetActivity);
+      clearInterval(intervalId);
+    };
+  }, [currentUser]);
+
   // Authenticated sub-routing state (signin, signup, recovery)
   const [authSubMode, setAuthSubMode] = useState<'signin' | 'signup' | 'recovery'>('signin');
 
@@ -505,8 +548,15 @@ export default function App() {
   // Eyecare & Tactical Field Visual Overlay Options
   const [visualMode, setVisualMode] = useState<'standard' | 'comfort' | 'night'>(() => {
     try {
+      const eyeSettingsStr = localStorage.getItem('ericon_eye_settings');
+      if (eyeSettingsStr) {
+        const eyeSettings = JSON.parse(eyeSettingsStr);
+        if (eyeSettings.visualMode) return eyeSettings.visualMode;
+      }
       const stored = localStorage.getItem('ericon_visual_mode');
-      return (stored as 'standard' | 'comfort' | 'night') || 'standard';
+      if (stored !== null) return stored as 'standard' | 'comfort' | 'night';
+      const defStored = localStorage.getItem('ericon_default_visual_mode');
+      return (defStored as 'standard' | 'comfort' | 'night') || 'standard';
     } catch {
       return 'standard';
     }
@@ -600,6 +650,11 @@ export default function App() {
   // Theme auto night switch state (Nocturnal automation)
   const [enableAutoNightMode, setEnableAutoNightMode] = useState<boolean>(() => {
     try {
+      const eyeSettingsStr = localStorage.getItem('ericon_eye_settings');
+      if (eyeSettingsStr) {
+        const eyeSettings = JSON.parse(eyeSettingsStr);
+        if (eyeSettings.enableAutoNightMode !== undefined) return eyeSettings.enableAutoNightMode;
+      }
       const stored = localStorage.getItem('ericon_enable_auto_night_mode');
       return stored ? stored === 'true' : false;
     } catch {
@@ -726,6 +781,43 @@ export default function App() {
       return stored === null ? true : stored === 'true';
     } catch {
       return true;
+    }
+  });
+
+  const [accessibilityFontBoldness, setAccessibilityFontBoldness] = useState<number>(() => {
+    try {
+      const eyeSettingsStr = localStorage.getItem('ericon_eye_settings');
+      if (eyeSettingsStr) {
+        const eyeSettings = JSON.parse(eyeSettingsStr);
+        if (eyeSettings.accessibilityFontBoldness !== undefined) return eyeSettings.accessibilityFontBoldness;
+      }
+      const stored = localStorage.getItem('ericon_access_font_boldness');
+      return stored ? parseInt(stored, 10) : 500;
+    } catch {
+      return 500;
+    }
+  });
+
+  const [appliedFontBoldness, setAppliedFontBoldness] = useState<number>(() => {
+    try {
+      const eyeSettingsStr = localStorage.getItem('ericon_eye_settings');
+      if (eyeSettingsStr) {
+        const eyeSettings = JSON.parse(eyeSettingsStr);
+        if (eyeSettings.appliedFontBoldness !== undefined) return eyeSettings.appliedFontBoldness;
+      }
+      const stored = localStorage.getItem('ericon_applied_font_boldness');
+      return stored ? parseInt(stored, 10) : 500;
+    } catch {
+      return 500;
+    }
+  });
+
+  const [defaultVisualMode, setDefaultVisualMode] = useState<'standard' | 'comfort' | 'night'>(() => {
+    try {
+      const stored = localStorage.getItem('ericon_default_visual_mode');
+      return (stored as 'standard' | 'comfort' | 'night') || 'standard';
+    } catch {
+      return 'standard';
     }
   });
 
@@ -964,6 +1056,30 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('ericon_access_reduce_crowding', String(accessibilityReduceCrowding));
   }, [accessibilityReduceCrowding]);
+
+  useEffect(() => {
+    localStorage.setItem('ericon_access_font_boldness', String(accessibilityFontBoldness));
+  }, [accessibilityFontBoldness]);
+
+  useEffect(() => {
+    localStorage.setItem('ericon_applied_font_boldness', String(appliedFontBoldness));
+  }, [appliedFontBoldness]);
+
+  useEffect(() => {
+    try {
+      const settings = {
+        visualMode,
+        enableAutoNightMode,
+        accessibilityFontBoldness,
+        appliedFontBoldness
+      };
+      localStorage.setItem('ericon_eye_settings', JSON.stringify(settings));
+    } catch (e) {}
+  }, [visualMode, enableAutoNightMode, accessibilityFontBoldness, appliedFontBoldness]);
+
+  useEffect(() => {
+    localStorage.setItem('ericon_default_visual_mode', defaultVisualMode);
+  }, [defaultVisualMode]);
 
   useEffect(() => {
     localStorage.setItem('ericon_table_zoom', String(tableZoom));
@@ -1682,6 +1798,33 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
       ? 'sepia(35%) saturate(115%) contrast(92%)'
       : 'none';
 
+  if (currentUser === null) {
+    return (
+      <div 
+        className={`min-h-screen bg-slate-900 text-slate-100 font-sans flex items-center justify-center p-4 relative overflow-hidden`} 
+        id="app-root-auth-block"
+      >
+        {/* Ambient tech styling background */}
+        <div className="absolute inset-0 bg-[#0B2114] opacity-75 z-0" style={{ 
+          backgroundImage: 'radial-gradient(#15462D 1.2px, transparent 1.2px)', 
+          backgroundSize: '32px 32px'
+        }} />
+        
+        <div className="z-10 w-full max-w-lg shadow-2xl relative">
+          <SecureAccessGatewall
+            isBlockPage={true}
+            onCancel={() => {}}
+            onSuccess={(user) => {
+              setCurrentUser(user);
+              // Dispatch showToast via standard custom event
+              window.dispatchEvent(new CustomEvent('ericon_show_toast', { detail: { message: 'Security accreditation verified. Welcome to ERICON.', type: 'success' } }));
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div 
       className={`min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col selection:bg-blue-100 select-none pb-12 relative transition-all duration-300 ${
@@ -2144,7 +2287,95 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
           }
         ` : ''}
 
-        /* Accessibility: Bold Text Boost */
+        /* Accessibility: Bold Text Boost & Custom slider boldness limits */
+        #app-root h1, #app-root h2, #app-root h3, #app-root h4, #app-root strong, #app-root th, #app-root .font-bold, #app-root .font-extrabold, #app-root .font-black {
+          font-weight: ${appliedFontBoldness} !important;
+        }
+
+        #app-root p, #app-root td, #app-root span:not([class*="lucide"]):not([class*="recharts"]), #app-root label, #app-root input, #app-root select, #app-root textarea {
+          font-weight: ${Math.min(400, appliedFontBoldness)} !important;
+        }
+
+        ${appliedFontBoldness === 300 ? `
+          /* MINIMUM BOLDNESS (300): FAINTING WORDS AND BACKGROUND CHANGING TO GRAY AS SHOWN IN SCREENSHOT */
+          #app-root, #app-root-inner, #app-main-view-layout, .visual-mode-night, .visual-mode-comfort {
+            background-color: #f3f4f6 !important;
+            background-image: none !important;
+          }
+          #app-root .bg-white, 
+          #app-root .bg-slate-50, 
+          #app-root .bg-slate-100, 
+          #app-root .bg-slate-900,
+          #app-root .bg-slate-950,
+          #app-root .bg-slate-905,
+          #app-root aside,
+          #app-root div[class*="bg-"] {
+            background-color: #e5e7eb !important;
+            border-color: #d1d5db !important;
+            box-shadow: none !important;
+          }
+          #app-root h1, #app-root h2, #app-root h3, #app-root h4, #app-root p, #app-root span:not([class*="lucide"]):not([class*="recharts"]), #app-root label, #app-root td, #app-root th, #app-root strong, #app-root select {
+            color: #8b96a8 !important;
+            font-weight: 300 !important;
+            text-shadow: none !important;
+            opacity: 0.65 !important;
+          }
+          #app-root .text-[#15462D], 
+          #app-root .text-emerald-800, 
+          #app-root .text-emerald-700, 
+          #app-root .text-[#1e293b],
+          #app-root .text-slate-900,
+          #app-root .text-slate-705,
+          #app-root .text-slate-800 {
+            color: #718096 !important;
+          }
+          #app-root input, 
+          #app-root select, 
+          #app-root textarea,
+          #app-root div[class*="border"] {
+            background-color: #e5e7eb !important;
+            color: #718096 !important;
+            border-color: #d1d5db !important;
+            font-weight: 300 !important;
+            opacity: 0.75 !important;
+          }
+          #app-root .bg-[#15462D],
+          #app-root .bg-emerald-100, 
+          #app-root .bg-emerald-50, 
+          #app-root .bg-emerald-600 {
+            background-color: #d1d5db !important;
+            color: #718096 !important;
+            border-color: #d1d5db !important;
+          }
+          #app-root svg {
+            opacity: 0.55 !important;
+          }
+        ` : ''}
+
+        ${appliedFontBoldness === 400 ? `
+          /* INTERMEDIATE BOLDNESS (400): MEDIUM-LIGHT MILD FAINTING AND SOFT GRAY CANVAS */
+          #app-root, #app-root-inner {
+            background-color: #fafbfb !important;
+          }
+          #app-root .bg-white, 
+          #app-root .bg-slate-50, 
+          #app-root .bg-slate-100 {
+            background-color: #f1f3f5 !important;
+            border-color: #e2e8f0 !important;
+          }
+          #app-root h1, #app-root h2, #app-root h3, #app-root h4, #app-root p, #app-root span:not([class*="lucide"]):not([class*="recharts"]), #app-root label, #app-root td, #app-root th, #app-root strong {
+            color: #5c6470 !important;
+            opacity: 0.8 !important;
+          }
+          #app-root input, 
+          #app-root select, 
+          #app-root textarea {
+            background-color: #f1f3f5 !important;
+            color: #5c6470 !important;
+            border-color: #e2e8f0 !important;
+          }
+        ` : ''}
+
         ${accessibilityBoldText ? `
           #app-root {
             font-weight: 600 !important;
@@ -2349,9 +2580,7 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
           font-weight: 905 !important;
         }
 
-        /* EXPLICIT CRITICAL SYSTEM LEVEL HIGH-CONTRAST DEEP DARK GREEN (#15462D) STYLING OVERRIDES FOR RESEARCH PORTAL & LIGHT PARTS OF SIMULATOR CORES */
-        #research-workspace-root p:not(button *):not(a *),
-        #research-workspace-root label:not(button *):not(a *),
+        /* EXPLICIT CRITICAL SYSTEM LEVEL HIGH-CONTRAST DEEP DARK GREEN (#15462D) STYLING OVERRIDES FOR RESEARCH PORTAL & LIGHT PARTS OF SIMULATOR CORES - REFACTORED TO RESPECT ACCESSIBILITY SLIDER & GOOGLE AI STUDIO STANDARD */
         #research-workspace-root h1:not(button *):not(a *),
         #research-workspace-root h2:not(button *):not(a *),
         #research-workspace-root h3:not(button *):not(a *),
@@ -2361,6 +2590,28 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
         #research-workspace-root strong:not(button *):not(a *),
         #research-workspace-root b:not(button *):not(a *),
         #research-workspace-root th:not(button *):not(a *),
+        #simulator-tab-root-container h1:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
+        #simulator-tab-root-container h2:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
+        #simulator-tab-root-container h3:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
+        #simulator-tab-root-container h4:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
+        #simulator-tab-root-container h5:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
+        #simulator-tab-root-container h6:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
+        #simulator-tab-root-container strong:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
+        #simulator-tab-root-container b:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
+        #simulator-tab-root-container th:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-905 *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *) {
+          font-weight: ${appliedFontBoldness} !important;
+          text-shadow: none !important;
+          ${appliedFontBoldness === 300 ? `
+            color: #8b96a8 !important;
+            opacity: 0.65 !important;
+          ` : `
+            /* Beautiful crisp title color matching Google AI Studio's sleek slate hierarchy */
+            color: #0f172a !important;
+          `}
+        }
+
+        #research-workspace-root p:not(button *):not(a *),
+        #research-workspace-root label:not(button *):not(a *),
         #research-workspace-root td:not(button *):not(a *),
         #research-workspace-root li:not(button *):not(a *),
         #research-workspace-root select:not(button *):not(a *),
@@ -2370,15 +2621,6 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
         #research-workspace-root span:not(button *):not(a *):not(.recharts-legend-item-text):not(.recharts-default-legend *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
         #simulator-tab-root-container p:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
         #simulator-tab-root-container label:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
-        #simulator-tab-root-container h1:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
-        #simulator-tab-root-container h2:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
-        #simulator-tab-root-container h3:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
-        #simulator-tab-root-container h4:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
-        #simulator-tab-root-container h5:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
-        #simulator-tab-root-container h6:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
-        #simulator-tab-root-container strong:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
-        #simulator-tab-root-container b:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
-        #simulator-tab-root-container th:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-905 *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
         #simulator-tab-root-container td:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-905 *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
         #simulator-tab-root-container li:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *),
         #simulator-tab-root-container select:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *),
@@ -2386,10 +2628,15 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
         #simulator-tab-root-container textarea:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *),
         #simulator-tab-root-container option:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *),
         #simulator-tab-root-container span:not(#simulator-subtab-header *):not(#metric-schematic-visual *):not(#pdf-compilation-card *):not(.bg-slate-900 *):not(.bg-slate-950 *):not(#favorites-presets-mini-list *):not(button *):not(.recharts-legend-item-text):not(.recharts-default-legend *):not([class*="recharts-tooltip"]):not([class*="recharts-tooltip"] *) {
-          color: #15462D !important;
-          opacity: 1 !important;
+          font-weight: ${Math.min(400, appliedFontBoldness)} !important;
           text-shadow: none !important;
-          font-weight: 850 !important;
+          ${appliedFontBoldness === 300 ? `
+            color: #8b96a8 !important;
+            opacity: 0.65 !important;
+          ` : `
+            /* Highly premium readable slate body gray exactly like Google AI Studio */
+            color: #475569 !important;
+          `}
         }
 
         /* SVG icon strokes should align to the premium deep green theme */
@@ -4166,8 +4413,17 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
                       onClick={() => { setActiveTab('home'); setShowSideDropdown(false); }}
                       className={`w-full text-left py-2.5 px-3 rounded flex items-center gap-3 transition cursor-pointer font-bold border-0 text-[11px] uppercase ${activeTab === 'home' ? 'bg-[#15462D] text-white' : 'text-slate-650 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
                     >
-                      <Compass className="w-4 h-4 text-emerald-650" />
+                      <Shield className="w-4 h-4 text-emerald-650" />
                       <span>Home Dashboard</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('research'); setShowSideDropdown(false); }}
+                      className={`w-full text-left py-2.5 px-3 rounded flex items-center gap-3 transition cursor-pointer font-bold border-0 text-[11px] uppercase ${activeTab === 'research' ? 'bg-[#15462D] text-white' : 'text-slate-650 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                    >
+                      <Activity className="w-4 h-4 text-emerald-650" />
+                      <span>Research Workspace</span>
                     </button>
 
                     <button
@@ -4176,35 +4432,30 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
                       className={`w-full text-left py-2.5 px-3 rounded flex items-center gap-3 transition cursor-pointer font-bold border-0 text-[11px] uppercase ${activeTab === 'simulator' ? 'bg-[#15462D] text-white' : 'text-slate-650 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
                     >
                       <Cpu className="w-4 h-4 text-emerald-650" />
-                      <span>Fluid Simulator</span>
+                      <span>Airflow Simulator</span>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => { setActiveTab('research'); setShowSideDropdown(false); }}
-                      className={`w-full text-left py-2.5 px-3 rounded flex items-center gap-3 transition cursor-pointer font-bold border-0 text-[11px] uppercase ${activeTab === 'research' ? 'bg-[#15462D] text-white' : 'text-slate-650 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-                    >
-                      <Layers3 className="w-4 h-4 text-emerald-650" />
-                      <span>Ecology & Species</span>
-                    </button>
+                    {currentUser !== null && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => { setActiveTab('discuss'); setShowSideDropdown(false); }}
+                          className={`w-full text-left py-2.5 px-3 rounded flex items-center gap-3 transition cursor-pointer font-bold border-0 text-[11px] uppercase ${activeTab === 'discuss' ? 'bg-[#15462D] text-white' : 'text-slate-650 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                        >
+                          <MessageSquare className="w-4 h-4 text-emerald-650" />
+                          <span>Scientist Forum</span>
+                        </button>
 
-                    <button
-                      type="button"
-                      onClick={() => { setActiveTab('discuss'); setShowSideDropdown(false); }}
-                      className={`w-full text-left py-2.5 px-3 rounded flex items-center gap-3 transition cursor-pointer font-bold border-0 text-[11px] uppercase ${activeTab === 'discuss' ? 'bg-[#15462D] text-white' : 'text-slate-650 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-                    >
-                      <MessageCircle className="w-4 h-4 text-emerald-650" />
-                      <span>Peers & Feedback</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => { setActiveTab('workspace'); setShowSideDropdown(false); }}
-                      className={`w-full text-left py-2.5 px-3 rounded flex items-center gap-3 transition cursor-pointer font-bold border-0 text-[11px] uppercase ${activeTab === 'workspace' ? 'bg-[#15462D] text-white' : 'text-slate-650 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-                    >
-                      <Database className="w-4 h-4 text-emerald-650" />
-                      <span>Google Workspace Hub</span>
-                    </button>
+                        <button
+                          type="button"
+                          onClick={() => { setActiveTab('workspace'); setShowSideDropdown(false); }}
+                          className={`w-full text-left py-2.5 px-3 rounded flex items-center gap-3 transition cursor-pointer font-bold border-0 text-[11px] uppercase ${activeTab === 'workspace' ? 'bg-[#15462D] text-white' : 'text-slate-650 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+                        >
+                          <Database className="w-4 h-4 text-emerald-650" />
+                          <span>Workspace Hub</span>
+                        </button>
+                      </>
+                    )}
 
                     <button
                       type="button"
@@ -4212,7 +4463,7 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
                       className={`w-full text-left py-2.5 px-3 rounded flex items-center gap-3 transition cursor-pointer font-bold border-0 text-[11px] uppercase ${activeTab === 'developer' ? 'bg-[#15462D] text-white' : 'text-slate-650 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
                     >
                       <Settings className="w-4 h-4 text-emerald-650" />
-                      <span>Sign In & Governance</span>
+                      <span>Governance Portal</span>
                     </button>
                   </div>
                 </div>
@@ -4317,24 +4568,24 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
                   {/* Eye care overlay shortcuts */}
                   <div className="space-y-1.5 bg-slate-50 dark:bg-slate-950 p-3 rounded border border-slate-150 dark:border-slate-850">
                     <span className="text-[8.5px] uppercase text-slate-450 dark:text-slate-500 font-black tracking-widest block">Eye Calibration overlays</span>
-                    <div className="grid grid-cols-3 gap-1 text-[9px] uppercase font-bold text-center">
+                    <div className="flex flex-wrap gap-1.5 text-[9px] uppercase font-bold text-center w-full p-1">
                       <button
                         onClick={() => setVisualMode('standard')}
-                        className={`p-1.5 border rounded cursor-pointer transition ${visualMode === 'standard' ? 'bg-[#15462D] dark:bg-emerald-800 border-[#15462D] text-white font-extrabold' : 'border-slate-200 dark:border-slate-800 text-slate-500'}`}
+                        className={`w-auto px-4 py-2 whitespace-nowrap text-center border rounded cursor-pointer transition ${visualMode === 'standard' ? 'bg-[#15462D] dark:bg-emerald-800 border-[#15462D] text-white font-extrabold' : 'border-slate-200 dark:border-slate-800 text-slate-500'}`}
                       >
                         LUC (CLEAR)
                       </button>
                       <button
                         onClick={() => setVisualMode('comfort')}
-                        className={`p-1.5 border rounded cursor-pointer transition ${visualMode === 'comfort' ? 'bg-amber-500 border-amber-500 text-white font-extrabold' : 'border-slate-200 dark:border-slate-800 text-slate-500'}`}
+                        className={`w-auto px-4 py-2 whitespace-nowrap text-center border rounded cursor-pointer transition ${visualMode === 'comfort' ? 'bg-amber-500 border-amber-500 text-white font-extrabold' : 'border-slate-200 dark:border-slate-800 text-slate-500'}`}
                       >
                         Amber
                       </button>
                       <button
                         onClick={() => setVisualMode('night')}
-                        className={`p-1.5 border rounded cursor-pointer transition ${visualMode === 'night' ? 'bg-purple-700 border-purple-700 text-white font-extrabold' : 'border-slate-200 dark:border-slate-800 text-slate-500'}`}
+                        className={`w-auto px-4 py-2 whitespace-nowrap text-center border rounded cursor-pointer transition ${visualMode === 'night' ? 'bg-purple-700 border-purple-700 text-white font-extrabold' : 'border-slate-200 dark:border-slate-800 text-slate-500'}`}
                       >
-                        Purple
+                        Purple (Night)
                       </button>
                     </div>
                   </div>
@@ -4793,8 +5044,8 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
                 >
                   <Cpu className="w-4 h-4 shrink-0 pr-0.5 animate-pulse" />
                   {expandedSidebar ? (
-                    <span className="font-extrabold text-left leading-tight whitespace-normal break-words text-[9px]">
-                      Simulator-(Rodent Artificial Underground Achieve Airflow)
+                    <span className="font-extrabold text-left truncate text-[10.5px]">
+                      Airflow Simulator
                     </span>
                   ) : null}
                 </button>
@@ -4900,112 +5151,112 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col gap-6 w-full max-w-7xl mx-auto mb-10 text-start font-sans"
+            className="flex flex-col gap-8 w-full max-w-7xl mx-auto mb-10 text-start font-sans"
             id="ericon-home-dashboard"
           >
             {/* 3. Grid Metrics & Protocol Cards (Middle Body) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="home-protocols-grid">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8" id="home-protocols-grid">
               
               {/* Left Column (Scientific Integrity Card) */}
-              <div className="bg-white border-2 border-slate-200 p-6 rounded-lg shadow-xs flex flex-col justify-between font-mono hover:border-emerald-500/45 transition-colors group">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 border-b border-slate-150 pb-3">
+              <div className="bg-white border border-slate-200 dark:border-slate-800 p-8 rounded-lg shadow-xs flex flex-col justify-between font-mono hover:border-emerald-500/40 transition-colors group">
+                <div className="space-y-6">
+                  <div className="flex items-center gap-2 border-b border-slate-150 pb-4">
                     <ShieldCheck className="w-5 h-5 text-emerald-800" />
                     <span className="text-xs font-black uppercase text-[#15462D] tracking-widest block">
                       Scientific Integrity Protection
                     </span>
                   </div>
                   
-                  <div className="space-y-3.5 text-xs text-slate-705">
-                    <div className="p-3 bg-slate-50 border border-slate-150 rounded flex items-start gap-3">
+                  <div className="space-y-4 text-xs text-slate-705">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded flex items-start gap-4">
                       <span className="text-emerald-750 font-black shrink-0 mt-0.5">●</span>
                       <div className="font-sans">
-                        <strong className="font-mono text-[11px] block text-slate-900 uppercase">Tamper-proof protocol logs</strong>
-                        <p className="text-[11px] text-slate-500 leading-normal mt-0.5">Cryptographic verification ledger logging every calibration adjustment made by active scientific terminals.</p>
+                        <strong className="font-mono text-[11px] block text-slate-900 dark:text-slate-100 uppercase">Tamper-proof protocol logs</strong>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal mt-0.5">Cryptomath calibration records.</p>
                       </div>
                     </div>
 
-                    <div className="p-3 bg-slate-50 border border-slate-150 rounded flex items-start gap-3">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded flex items-start gap-4">
                       <span className="text-emerald-750 font-black shrink-0 mt-0.5">●</span>
                       <div className="font-sans">
-                        <strong className="font-mono text-[11px] block text-slate-900 uppercase">Data audit trail</strong>
-                        <p className="text-[11px] text-slate-500 leading-normal mt-0.5">Line-by-line continuous transaction history of all sensor feeds, air currents, and mouse demographic samples.</p>
+                        <strong className="font-mono text-[11px] block text-slate-900 dark:text-slate-100 uppercase">Data audit trail</strong>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal mt-0.5">Continuous live audit feeds.</p>
                       </div>
                     </div>
 
-                    <div className="p-3 bg-slate-50 border border-slate-150 rounded flex items-start gap-3">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded flex items-start gap-4">
                       <span className="text-emerald-750 font-black shrink-0 mt-0.5">●</span>
                       <div className="font-sans">
-                        <strong className="font-mono text-[11px] block text-slate-900 uppercase">Algorithm verification</strong>
-                        <p className="text-[11px] text-slate-500 leading-normal mt-0.5">High-frequency automated validation checking fluid flows against Reynolds, dynamic viscid pressure parameters.</p>
+                        <strong className="font-mono text-[11px] block text-slate-900 dark:text-slate-100 uppercase">Algorithm verification</strong>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal mt-0.5">Flow math check validation.</p>
                       </div>
                     </div>
                   </div>
                 </div>
-                <div className="text-[9.5px] uppercase tracking-wider text-slate-400 mt-4 pt-3 border-t border-slate-50 font-black font-mono">
+                <div className="text-[9.5px] uppercase tracking-wider text-slate-400 mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 font-black font-mono">
                   STATUS KEY: ER-IP-PROTO-15-ACTIVE
                 </div>
               </div>
 
               {/* Right Column (Access Protocols Card) */}
-              <div className="bg-white border-2 border-slate-200 p-6 rounded-lg shadow-xs flex flex-col justify-between font-mono hover:border-emerald-500/45 transition-colors group">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 border-b border-slate-150 pb-3">
+              <div className="bg-white border border-slate-200 dark:border-slate-800 p-8 rounded-lg shadow-xs flex flex-col justify-between font-mono hover:border-emerald-500/40 transition-colors group">
+                <div className="space-y-6">
+                  <div className="flex items-center gap-2 border-b border-slate-150 pb-4">
                     <Fingerprint className="w-5 h-5 text-[#15462D]" />
                     <span className="text-xs font-black uppercase text-[#15462D] tracking-widest block">
                       Access Protocols &amp; Exceptions
                     </span>
                   </div>
                   
-                  <div className="space-y-3.5 text-xs text-slate-705">
-                    <div className="p-3 bg-slate-50 border border-slate-150 rounded flex items-start gap-3">
+                  <div className="space-y-4 text-xs text-slate-705">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded flex items-start gap-4">
                       <span className="text-emerald-750 font-black shrink-0 mt-0.5">●</span>
                       <div className="font-sans">
-                        <strong className="font-mono text-[11px] block text-slate-900 uppercase">Biometric handshake</strong>
-                        <p className="text-[11px] text-slate-500 leading-normal mt-0.5">Encrypted token request sent via local physical workspace terminals to assert active supervisor attendance.</p>
+                        <strong className="font-mono text-[11px] block text-slate-900 dark:text-slate-100 uppercase">Biometric handshake</strong>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal mt-0.5">Workspace hardware tokens matching.</p>
                       </div>
                     </div>
 
-                    <div className="p-3 bg-slate-50 border border-slate-150 rounded flex items-start gap-3">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded flex items-start gap-4">
                       <span className="text-emerald-750 font-black shrink-0 mt-0.5">●</span>
                       <div className="font-sans">
-                        <strong className="font-mono text-[11px] block text-slate-900 uppercase">Identity verification</strong>
-                        <p className="text-[11px] text-slate-500 leading-normal mt-0.5">Real-time profile cross-matching to corporate ERICON employee database and approved researchers.</p>
+                        <strong className="font-mono text-[11px] block text-slate-900 dark:text-slate-100 uppercase">Identity verification</strong>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal mt-0.5">Authorized investigator registration lookup.</p>
                       </div>
                     </div>
 
-                    <div className="p-3 bg-slate-50 border border-slate-150 rounded flex items-start gap-3">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-150 dark:border-slate-800 rounded flex items-start gap-4">
                       <span className="text-emerald-750 font-black shrink-0 mt-0.5">●</span>
                       <div className="font-sans">
-                        <strong className="font-mono text-[11px] block text-slate-905 uppercase">Multi-factor authentication</strong>
-                        <p className="text-[11px] text-slate-500 leading-normal mt-0.5">Mandatory second-factor passkey or dynamic code confirmation node to grant exception authorization rights.</p>
+                        <strong className="font-mono text-[11px] block text-slate-905 dark:text-slate-100 uppercase">Multi-factor authentication</strong>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal mt-0.5">Secondary secure passkey validation.</p>
                       </div>
                     </div>
                   </div>
                 </div>
-                <div className="text-[9.5px] uppercase tracking-wider text-slate-400 mt-4 pt-3 border-t border-slate-50 font-black font-mono">
+                <div className="text-[9.5px] uppercase tracking-wider text-slate-400 mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 font-black font-mono">
                   ROUTING KEY: ER-AC-MFA-PASS-SEC
                 </div>
               </div>
             </div>
 
             {/* Gateway actions Directly on Page */}
-            <div className="bg-slate-950 text-slate-100 p-6 rounded-lg border border-emerald-500/25 shadow-md flex flex-col md:flex-row items-center justify-between gap-6" id="unblocked-homepage-gateways">
-              <div className="space-y-1.5 text-center md:text-left font-mono">
+            <div className="bg-slate-950 text-slate-100 p-8 rounded-lg border border-emerald-500/20 shadow-md flex flex-col md:flex-row items-center justify-between gap-8" id="unblocked-homepage-gateways">
+              <div className="space-y-2 text-center md:text-left font-mono">
                 <span className="text-emerald-400 text-[10px] uppercase font-black tracking-widest block font-bold">Secure Researcher Entry Point</span>
                 <p className="text-xs text-slate-300 font-sans max-w-xl">
-                  Establish certified credentials or log in with your regional researcher identification keychain to enable dynamic model adjustments, write peer charts, or configure full-stack telemetry flows.
+                  Authenticate ERICON investigator credentials.
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center justify-center gap-3">
+              <div className="flex flex-wrap items-center justify-center gap-4">
                 <button
                   type="button"
                   onClick={() => {
                     setAuthSubMode('signin');
                     setActiveTab('developer');
                   }}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-black text-[10px] uppercase rounded cursor-pointer transition-all border-0 shadow-sm"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-black text-[10px] uppercase rounded cursor-pointer transition-all border border-transparent shadow-xs"
                 >
                   Sign In
                 </button>
@@ -5015,7 +5266,7 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
                     setAuthSubMode('signup');
                     setActiveTab('developer');
                   }}
-                  className="px-4 py-2 bg-[#15462D] hover:bg-emerald-900 text-white font-mono font-black text-[10px] uppercase rounded cursor-pointer transition-all border-0 shadow-sm"
+                  className="px-5 py-2.5 bg-[#15462D] hover:bg-emerald-900 text-white font-mono font-black text-[10px] uppercase rounded cursor-pointer transition-all border border-transparent shadow-xs"
                 >
                   Create Account
                 </button>
@@ -5025,7 +5276,7 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
                     setAuthSubMode('recovery');
                     setActiveTab('developer');
                   }}
-                  className="px-4 py-2 bg-slate-850 hover:bg-slate-700 text-slate-350 font-mono font-bold text-[10px] uppercase rounded cursor-pointer transition-all border-0 hover:text-white"
+                  className="px-5 py-2.5 bg-slate-850 hover:bg-slate-750 text-slate-300 font-mono font-bold text-[10px] uppercase rounded cursor-pointer transition-all border border-transparent hover:text-white"
                 >
                   Recovery
                 </button>
@@ -5033,13 +5284,13 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
             </div>
 
             {/* 4. Primary Action Footer (Bottom) [ ACCEPT UPDATE ] [ DELAY NOTE ] */}
-            <div className="bg-slate-50 border border-slate-205 p-5 rounded-md flex flex-col sm:flex-row items-center justify-center gap-4 text-center select-none" id="primary-action-footer-home">
+            <div className="bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-6 rounded-lg flex flex-col sm:flex-row items-center justify-center gap-4 text-center select-none" id="primary-action-footer-home">
               <button
                 type="button"
                 onClick={() => {
                   alert("CONFIRMED: Scientific update guidelines and model protocols have been successfully accepted.\nThank you for ensuring active ERICON regulatory compliance.");
                 }}
-                className="w-full sm:w-auto px-6 py-3 bg-[#15462D] hover:bg-[#0c2f1e] text-white font-mono font-black text-xs uppercase rounded-sm cursor-pointer transition-all border-0 shadow-md transform hover:-translate-y-0.5"
+                className="w-full sm:w-auto px-6 py-3 bg-[#15462D] hover:bg-[#0c2f1e] text-white font-mono font-black text-xs uppercase rounded cursor-pointer transition-all border border-transparent shadow-md transform hover:-translate-y-0.5"
               >
                 [ ACCEPT UPDATE ]
               </button>
@@ -5048,7 +5299,7 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
                 onClick={() => {
                   alert("DELAY COMPLIANCE: Integrity verification note has been postponed for 24 hours.\nPlease maintain active awareness of ERICON parameters.");
                 }}
-                className="w-full sm:w-auto px-6 py-3 bg-white border-2 border-slate-305 hover:border-slate-400 text-slate-700 font-mono font-black text-xs uppercase rounded-sm cursor-pointer transition-all transform hover:-translate-y-0.5"
+                className="w-full sm:w-auto px-6 py-3 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 hover:border-slate-400 text-slate-700 dark:text-slate-300 font-mono font-black text-xs uppercase rounded cursor-pointer transition-all transform hover:-translate-y-0.5"
               >
                 [ DELAY NOTE ]
               </button>
@@ -5616,11 +5867,11 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
               
               {/* Visual Eye-care Overlay Selector */}
               <span className="text-[8px] uppercase text-slate-400 dark:text-slate-500 font-bold block mb-1">VISION CONTRAST ENGINE</span>
-              <div className="grid grid-cols-3 gap-1 mb-3">
+              <div className="flex flex-wrap gap-1.5 mb-3 w-full p-1">
                 <button
                   type="button"
                   onClick={() => setVisualMode('standard')}
-                  className={`py-1 text-[8px] uppercase font-bold text-center border rounded transition cursor-pointer ${
+                  className={`w-auto px-4 py-2 whitespace-nowrap text-center text-[8px] uppercase font-bold border rounded transition cursor-pointer ${
                     visualMode === 'standard'
                       ? 'bg-emerald-700 border-emerald-650 text-white font-extrabold'
                       : 'bg-white dark:bg-transparent border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-105 dark:hover:bg-slate-900'
@@ -5631,7 +5882,7 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
                 <button
                   type="button"
                   onClick={() => setVisualMode('comfort')}
-                  className={`py-1 text-[8px] uppercase font-bold text-center border rounded transition cursor-pointer ${
+                  className={`w-auto px-4 py-2 whitespace-nowrap text-center text-[8px] uppercase font-bold border rounded transition cursor-pointer ${
                     visualMode === 'comfort'
                       ? 'bg-amber-600 border-amber-650 text-white font-extrabold'
                       : 'bg-white dark:bg-transparent border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-105 dark:hover:bg-slate-900'
@@ -5642,13 +5893,13 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
                 <button
                   type="button"
                   onClick={() => setVisualMode('night')}
-                  className={`py-1 text-[8px] uppercase font-bold text-center border rounded transition cursor-pointer ${
+                  className={`w-auto px-4 py-2 whitespace-nowrap text-center text-[8px] uppercase font-bold border rounded transition cursor-pointer ${
                     visualMode === 'night'
                       ? 'bg-purple-700 border-purple-850 text-white font-extrabold'
                       : 'bg-white dark:bg-transparent border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-105 dark:hover:bg-slate-900'
                   }`}
                 >
-                  Purple (IR)
+                  Purple (Night)
                 </button>
               </div>
 
@@ -5695,6 +5946,57 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
                   />
                   <span>Reduce Visual Grid Crowding</span>
                 </label>
+
+                <div className="space-y-1.5 pt-2 border-t border-slate-150 dark:border-slate-800 text-left">
+                  <div className="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                    <span className="font-bold">Font Boldness Limit:</span>
+                    <span className="font-extrabold text-[#15462D] dark:text-emerald-430">{accessibilityFontBoldness}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="300"
+                    max="800"
+                    step="100"
+                    value={accessibilityFontBoldness}
+                    onChange={(e) => setAccessibilityFontBoldness(parseInt(e.target.value, 10))}
+                    className="w-full accent-emerald-500 h-1 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[7px] text-slate-400">
+                    <span>300 (Light)</span>
+                    <span>500 (Med)</span>
+                    <span>800 (Bold)</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAppliedFontBoldness(accessibilityFontBoldness);
+                      setAccessibilityBoldText(false);
+                      triggerToast(`Applied font boldness of ${accessibilityFontBoldness} cross-workspace.`, 'success');
+                    }}
+                    className={`w-full py-1 border-0 font-sans font-bold uppercase text-[8px] rounded transition cursor-pointer select-none text-center shadow-xs mt-1.5 ${
+                      accessibilityFontBoldness !== appliedFontBoldness 
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold animate-pulse' 
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    {accessibilityFontBoldness === appliedFontBoldness ? 'Boldness Applied' : `Apply Boldness: ${accessibilityFontBoldness}`}
+                  </button>
+                </div>
+
+                <div className="space-y-1.5 pt-2.5 border-t border-slate-150 dark:border-slate-800 text-left">
+                  <div className="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                    <span className="font-bold">Default Eye Calibration:</span>
+                  </div>
+                  <select
+                    value={defaultVisualMode}
+                    onChange={(e) => setDefaultVisualMode(e.target.value as 'standard' | 'comfort' | 'night')}
+                    className="w-full text-[8.5px] bg-white dark:bg-slate-900 text-slate-705 dark:text-slate-300 border border-slate-205 dark:border-slate-800 rounded p-1 font-mono cursor-pointer"
+                  >
+                    <option value="standard">LUC (CLEAR)</option>
+                    <option value="comfort">Amber</option>
+                    <option value="night">Purple (IR)</option>
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -5912,25 +6214,25 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
                       {/* Visual Filter Modes inside Eye calibration group */}
                       <div className="space-y-1">
                         <span className="text-[9px] uppercase text-slate-500 font-bold block text-start">Active Visual Overlay</span>
-                        <div className="grid grid-cols-3 gap-1 text-[9px] uppercase font-bold text-center">
+                        <div className="flex flex-wrap gap-1.5 text-[9px] uppercase font-bold text-center w-full p-1">
                           <button
                             type="button"
                             onClick={() => setVisualMode('standard')}
-                            className={`p-1.5 border rounded cursor-pointer transition ${visualMode === 'standard' ? 'bg-[#15462D] text-white border-transparent shadow-xs font-black' : 'border-slate-200 text-slate-600 hover:bg-slate-50 bg-white'}`}
+                            className={`w-auto px-4 py-2 whitespace-nowrap text-center border rounded cursor-pointer transition ${visualMode === 'standard' ? 'bg-[#15462D] text-white border-transparent shadow-xs font-black' : 'border-slate-200 text-slate-600 hover:bg-slate-50 bg-white'}`}
                           >
                             LUC (CLEAR)
                           </button>
                           <button
                             type="button"
                             onClick={() => setVisualMode('comfort')}
-                            className={`p-1.5 border rounded cursor-pointer transition ${visualMode === 'comfort' ? 'bg-amber-500 text-white border-transparent shadow-xs font-black' : 'border-slate-200 text-slate-600 hover:bg-slate-50 bg-white'}`}
+                            className={`w-auto px-4 py-2 whitespace-nowrap text-center border rounded cursor-pointer transition ${visualMode === 'comfort' ? 'bg-amber-500 text-white border-transparent shadow-xs font-black' : 'border-slate-200 text-slate-600 hover:bg-slate-50 bg-white'}`}
                           >
                             Amber
                           </button>
                           <button
                             type="button"
                             onClick={() => setVisualMode('night')}
-                            className={`p-1.5 border rounded cursor-pointer transition ${visualMode === 'night' ? 'bg-purple-700 text-white border-transparent shadow-xs font-black' : 'border-slate-200 text-slate-600 hover:bg-slate-50 bg-white'}`}
+                            className={`w-auto px-4 py-2 whitespace-nowrap text-center border rounded cursor-pointer transition ${visualMode === 'night' ? 'bg-purple-700 text-white border-transparent shadow-xs font-black' : 'border-slate-200 text-slate-600 hover:bg-slate-50 bg-white'}`}
                           >
                             Purple (Night)
                           </button>
@@ -6001,13 +6303,78 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
                         <button
                           type="button"
                           onClick={() => setEnableAutoNightMode(!enableAutoNightMode)}
-                          className={`px-2 py-0.5 text-[8.5px] font-black rounded cursor-pointer uppercase transition-all ${
+                          className={`w-auto px-4 py-2 text-[8.5px] font-black rounded cursor-pointer uppercase transition-all whitespace-nowrap text-center ${
                             enableAutoNightMode 
                               ? 'bg-emerald-700 text-white border border-emerald-600 shadow-xs' 
                               : 'bg-slate-100 border border-slate-205 text-slate-600'
                           }`}
                         >
                           {enableAutoNightMode ? 'ON (DUSK)' : 'OFF (MUTED)'}
+                        </button>
+                      </div>
+
+                      <div className="flex flex-col gap-1 pt-2.5 border-t border-slate-100 text-left">
+                        <div className="flex justify-between items-center text-[9px] text-slate-500 font-mono">
+                          <span className="font-bold">Font Boldness Limit</span>
+                          <span className="font-extrabold text-[#15462D]">{accessibilityFontBoldness}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="300"
+                          max="800"
+                          step="100"
+                          value={accessibilityFontBoldness}
+                          onChange={(e) => setAccessibilityFontBoldness(parseInt(e.target.value, 10))}
+                          className="w-full accent-emerald-500 cursor-pointer h-1 bg-slate-100 rounded-lg appearance-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAppliedFontBoldness(accessibilityFontBoldness);
+                            setAccessibilityBoldText(false);
+                            triggerToast(`Applied font boldness of ${accessibilityFontBoldness} cross-workspace.`, 'success');
+                          }}
+                          className={`w-full py-1 border-0 font-sans font-bold uppercase text-[8px] rounded transition cursor-pointer select-none text-center shadow-xs mt-1 ${
+                            accessibilityFontBoldness !== appliedFontBoldness 
+                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold animate-pulse' 
+                              : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                          }`}
+                        >
+                          {accessibilityFontBoldness === appliedFontBoldness ? 'Boldness Applied' : `Apply Boldness: ${accessibilityFontBoldness}`}
+                        </button>
+                      </div>
+
+                      <div className="flex flex-col gap-1 pt-2 border-t border-slate-100 text-left">
+                        <span className="text-[9px] text-slate-500 font-bold">Default Eye Calibration</span>
+                        <select
+                          value={defaultVisualMode}
+                          onChange={(e) => setDefaultVisualMode(e.target.value as 'standard' | 'comfort' | 'night')}
+                          className="w-full text-[9px] bg-white text-slate-705 border border-slate-200 rounded p-1 font-mono cursor-pointer"
+                        >
+                          <option value="standard">LUC (CLEAR)</option>
+                          <option value="comfort">Amber</option>
+                          <option value="night">Purple (IR)</option>
+                        </select>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100 text-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVisualMode('standard');
+                            setEnableAutoNightMode(false);
+                            setAccessibilityFontBoldness(500);
+                            setAppliedFontBoldness(500);
+                            localStorage.removeItem('ericon_eye_settings');
+                            localStorage.removeItem('ericon_visual_mode');
+                            localStorage.removeItem('ericon_enable_auto_night_mode');
+                            localStorage.removeItem('ericon_access_font_boldness');
+                            localStorage.removeItem('ericon_applied_font_boldness');
+                            triggerToast('Restore Default Calibration complete.', 'info');
+                          }}
+                          className="text-[9px] font-mono text-emerald-800 hover:text-emerald-950 font-extrabold hover:underline bg-transparent border-0 cursor-pointer p-0.5"
+                        >
+                          🔄 Restore Default Calibration
                         </button>
                       </div>
                     </div>

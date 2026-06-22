@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { 
   Compass, FolderGit, Database, Sprout, Building2, BarChart3, 
-  FileText, Users, Settings as SettingsIcon, Layers, Lock, Cpu
+  FileText, Users, Settings as SettingsIcon, Layers, Lock, Cpu, Shield
 } from 'lucide-react';
 import { RodentSpecimen, BiodiversitySurveyItem } from '../types';
 import { INITIAL_SPECIMENS } from './research/initialData';
@@ -24,11 +24,12 @@ const AnalyticsTab = lazy(() => import('./research/AnalyticsTab').then(m => ({ d
 const ReportsTab = lazy(() => import('./research/ReportsTab').then(m => ({ default: m.ReportsTab })));
 const TeamTab = lazy(() => import('./research/TeamTab').then(m => ({ default: m.TeamTab })));
 const SettingsTab = lazy(() => import('./research/SettingsTab').then(m => ({ default: m.SettingsTab })));
+const AdminTab = lazy(() => import('./research/AdminTab').then(m => ({ default: m.AdminTab })));
 
 export function ResearchPortal() {
   // Navigation active tab segment state (defaulting to the light-weight overview landing card)
   const [activeSegment, setActiveSegment] = useState<
-    'overview' | 'projects' | 'collection' | 'biodiversity' | 'specimens' | 'farms' | 'warehouses' | 'analytics' | 'reports' | 'team' | 'settings'
+    'overview' | 'projects' | 'collection' | 'biodiversity' | 'specimens' | 'farms' | 'warehouses' | 'analytics' | 'reports' | 'team' | 'settings' | 'admin'
   >('overview');
 
   const [specimens, setSpecimens] = useState<RodentSpecimen[]>(() => {
@@ -121,7 +122,7 @@ export function ResearchPortal() {
       </div>
 
       {/* Main Workspace Navigation (Route-based Tabs Selectors) */}
-      <div className="bg-white border border-slate-200 p-2 rounded-xl shadow-3xs overflow-x-auto flex flex-wrap gap-1 md:grid md:grid-cols-11 text-center font-mono text-[9.5px]">
+      <div className="bg-white border border-slate-200 p-2 rounded-xl shadow-3xs overflow-x-auto flex flex-row flex-wrap gap-1 items-stretch text-center font-mono text-[9.5px]">
         {[
           { key: 'overview', label: 'Overview', icon: <Compass className="w-3.5 h-3.5" /> },
           { key: 'projects', label: 'Projects', icon: <FolderGit className="w-3.5 h-3.5" /> },
@@ -130,10 +131,13 @@ export function ResearchPortal() {
           { key: 'specimens', label: 'Specimens', icon: <Layers className="w-3.5 h-3.5" /> },
           { key: 'farms', label: 'Farms', icon: <Sprout className="w-3.5 h-3.5" /> },
           { key: 'warehouses', label: 'Warehouses', icon: <Building2 className="w-3.5 h-3.5" /> },
-          { key: 'analytics', label: 'Simulator-(Rodent Artificial Underground Achieve Airflow)', icon: <BarChart3 className="w-3.5 h-3.5" /> },
+          { key: 'analytics', label: 'Airflow Simulator', icon: <BarChart3 className="w-3.5 h-3.5" /> },
           { key: 'reports', label: 'Reports', icon: <FileText className="w-3.5 h-3.5" /> },
           { key: 'team', label: 'Team', icon: <Users className="w-3.5 h-3.5" /> },
           { key: 'settings', label: 'Settings', icon: <SettingsIcon className="w-3.5 h-3.5" /> },
+          ...(currentUser?.role === 'Admin' ? [
+            { key: 'admin', label: 'Admin Panel', icon: <Shield className="w-3.5 h-3.5 text-rose-600 dark:text-rose-450 animate-pulse" /> }
+          ] : [])
         ].map((tab) => {
           const isActive = activeSegment === tab.key;
           return (
@@ -184,6 +188,7 @@ export function ResearchPortal() {
           {activeSegment === 'reports' && <ReportsTab specimens={specimens} />}
           {activeSegment === 'team' && <TeamTab />}
           {activeSegment === 'settings' && <SettingsTab />}
+          {activeSegment === 'admin' && currentUser?.role === 'Admin' && <AdminTab />}
         </Suspense>
       </div>
     </div>

@@ -12,10 +12,33 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-// Locked accounts, rate limits and reset tokens structures
+// Simple array to log actions
+const actionLogs: string[] = [];
+function logAction(message: string) {
+  const logStr = `[${new Date().toISOString()}] ${message}`;
+  actionLogs.unshift(logStr);
+  console.log('[ACTION LOG]:', logStr);
+}
+
+// Locked accounts, IP rate limits and reset tokens structures
 const failedLoginAttempts: Record<string, { count: number; lockedUntil: number }> = {};
+const ipFailedLoginAttempts: Record<string, { count: number; lockedUntil: number }> = {};
 const activeResetTokens: Record<string, { email: string; expiresAt: number }> = {};
 const apiRateLimits: Record<string, { requests: number; windowStart: number }> = {};
+
+// PRODUCTION HTTPS ENFORCEMENT MIDDLEWARE
+app.use((req, res, next) => {
+  const host = req.get('host') || '';
+  const isAiStudio = host.includes('europe-west2.run.app') || host.includes('localhost') || host.includes('3000');
+  
+  if (!isAiStudio && process.env.NODE_ENV === 'production') {
+    const proto = req.headers['x-forwarded-proto'];
+    if (proto && proto !== 'https') {
+      return res.redirect(301, `https://${host}${req.originalUrl}`);
+    }
+  }
+  next();
+});
 
 app.use(express.json({ limit: '5mb' }));
 
@@ -162,12 +185,15 @@ let userProjects: any[] = [];
 let auditLogs: any[] = [];
 
 // Helper to push security audit records representation
-function addAuditLog(type: string, description: string) {
+function addAuditLog(type: string, description: string, email: string = 'system@ericon.org', ip: string = '127.0.0.1') {
   const newLog = {
     id: 'log-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
     timestamp: new Date().toISOString(),
     type,
-    description
+    description,
+    email,
+    action: description,
+    ip
   };
   auditLogs.unshift(newLog);
   if (auditLogs.length > 200) auditLogs.pop();
@@ -175,40 +201,127 @@ function addAuditLog(type: string, description: string) {
 }
 
 // Seed default accounts and comments if not present
+const USERS_FILE = path.join(process.cwd(), 'users.json');
+
+function saveUsersToDisk() {
+  const payload = {
+    users,
+    auditLogs
+  };
+  fs.writeFile(USERS_FILE, JSON.stringify(payload, null, 2), 'utf8', (err) => {
+    if (err) {
+      console.error('[USERS ASYNC SAVE FAULT]', err);
+    } else {
+      console.log('[USERS ASYNC SAVE SUCCESSFUL]');
+    }
+  });
+}
+
 function loadCollaborationDB() {
   try {
+    if (fs.existsSync(USERS_FILE)) {
+      try {
+        const fileContent = fs.readFileSync(USERS_FILE, 'utf8');
+        const parsed = JSON.parse(fileContent);
+        if (Array.isArray(parsed)) {
+          users = parsed;
+          auditLogs = [];
+        } else {
+          users = parsed.users || [];
+          auditLogs = parsed.auditLogs || [];
+        }
+        console.log(`[USER PERSISTENCE] Loaded ${users.length} users and ${auditLogs.length} audit logs successfully from users.json`);
+      } catch (e) {
+        console.error('[USER PERSISTENCE LOAD EXCEPTION]', e);
+      }
+    }
+
+    // 1. HARDCODE ADMIN CREDENTIALS: In 'users.json' permanently seed the Admin account
+    let adminUser = users.find((u: any) => u.username === 'joshuajakoniko' || u.email === 'jakonikojoshuaa@gmail.com');
+    if (!adminUser) {
+      adminUser = {
+        username: 'joshuajakoniko',
+        email: 'jakonikojoshuaa@gmail.com',
+        role: 'Admin',
+        institution: 'ERICON Chief Administrator',
+        country: 'United States',
+        profession: 'Chief Security Officer',
+        classification: 'Supreme Administrator',
+        researchInterests: 'Biosecurity, threat assessment, OTP protocols',
+        orcid_id: '0000-0002-1825-0097',
+        profileImage: '',
+        passwordHash: bcrypt.hashSync('123456', 10),
+        isEmailVerified: true,
+        createdAt: new Date().toISOString()
+      };
+      users.push(adminUser);
+    } else {
+      adminUser.username = 'joshuajakoniko';
+      adminUser.email = 'jakonikojoshuaa@gmail.com';
+      adminUser.role = 'Admin';
+    }
+    // Remove any legacy duplicate matching
+    users = users.filter((u: any) => !(u.username === 'joshua_jakoniko' && u.email === 'jakonikojoshuaa@gmail.com'));
+    saveUsersToDisk();
+
     if (fs.existsSync(DB_FILE)) {
       const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-      users = parsed.users || [];
+      if (!users || users.length === 0) {
+        users = parsed.users || [];
+      }
       comments = (parsed.comments || []).map((c: any) => ({
         ...c,
         reactions: c.reactions || { insightful: 0, verified: 0, alert: 0, fluid: 0 }
       }));
       projects = parsed.projects || [];
       userProjects = parsed.userProjects || [];
-      auditLogs = parsed.auditLogs || [];
+      if (!auditLogs || auditLogs.length === 0) {
+        auditLogs = parsed.auditLogs || [];
+      }
     } else {
       // Seed pre-verified active scientific personnel
-      users = [
-        {
-          username: 'sjenkins',
-          email: 's.jenkins@ericon.org',
-          role: 'Senior Epidemiologist',
-          institution: 'ERICON Ecological Group',
-          passwordHash: bcrypt.hashSync('123456', 10),
-          createdAt: new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString(),
-          isEmailVerified: true
-        },
-        {
-          username: 'mvance',
-          email: 'm.vance@reynolds.tech',
-          role: 'Fluid Dynamics Specialist',
-          institution: 'Reynolds Biotechnical',
-          passwordHash: bcrypt.hashSync('123456', 10),
-          createdAt: new Date(Date.now() - 45 * 24 * 3600 * 1000).toISOString(),
-          isEmailVerified: true
+      if (!users || users.length <= 1) { // 1 is just the admin we added above
+        users = [
+          {
+            username: 'joshuajakoniko',
+            email: 'jakonikojoshuaa@gmail.com',
+            role: 'Admin',
+            institution: 'ERICON Chief Administrator',
+            country: 'United States',
+            profession: 'Chief Security Officer',
+            classification: 'Supreme Administrator',
+            researchInterests: 'Biosecurity, threat assessment, OTP protocols',
+            orcid_id: '0000-0002-1825-0097',
+            profileImage: '',
+            passwordHash: bcrypt.hashSync('123456', 10),
+            isEmailVerified: true,
+            createdAt: new Date().toISOString()
+          },
+          {
+            username: 'sjenkins',
+            email: 's.jenkins@ericon.org',
+            role: 'Senior Epidemiologist',
+            institution: 'ERICON Ecological Group',
+            passwordHash: bcrypt.hashSync('123456', 10),
+            createdAt: new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString(),
+            isEmailVerified: true
+          },
+          {
+            username: 'mvance',
+            email: 'm.vance@reynolds.tech',
+            role: 'Fluid Dynamics Specialist',
+            institution: 'Reynolds Biotechnical',
+            passwordHash: bcrypt.hashSync('123456', 10),
+            createdAt: new Date(Date.now() - 45 * 24 * 3600 * 1000).toISOString(),
+            isEmailVerified: true
+          }
+        ];
+        try {
+          fs.writeFileSync(USERS_FILE, JSON.stringify({ users, auditLogs }, null, 2), 'utf8');
+        } catch (e) {
+          console.error('Error seeding users.json file', e);
         }
-      ];
+      }
 
       // Seed high-utility scientific threads with realistic active charts
       comments = [
@@ -293,6 +406,7 @@ function loadCollaborationDB() {
 function saveCollaborationDB() {
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify({ users, comments, projects, userProjects, auditLogs }, null, 2), 'utf8');
+    saveUsersToDisk();
   } catch (err) {
     console.error('[DATABASE WRITE FAULT]', err);
   }
@@ -360,6 +474,7 @@ app.post('/api/auth/register', checkRateLimit, (req, res) => {
   users.push(newUser);
   saveCollaborationDB();
   addAuditLog('SECURITY', `New staff scientist registration initialized: ${newUser.username} (${newUser.email}). Verification pending.`);
+  logAction(`${newUser.username} registered`);
 
   res.json({
     success: true,
@@ -386,6 +501,16 @@ app.post('/api/auth/login', checkRateLimit, (req, res) => {
     return res.status(400).json({ error: 'Please submit credentials' });
   }
 
+  // Get Client IP for lockout
+  const clientIp = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+  
+  // Check IP lockout first (15 minutes limit)
+  const ipLockout = ipFailedLoginAttempts[clientIp];
+  if (ipLockout && ipLockout.count >= 5 && ipLockout.lockedUntil > Date.now()) {
+    const remainingMin = Math.ceil((ipLockout.lockedUntil - Date.now()) / (1000 * 60));
+    return res.status(423).json({ error: `Too many failed login attempts from this IP. Locked out for security. Try again in: ${remainingMin} minute(s).` });
+  }
+
   const query = usernameOrEmail.trim().toLowerCase();
   const lockout = failedLoginAttempts[query];
   
@@ -399,6 +524,15 @@ app.post('/api/auth/login', checkRateLimit, (req, res) => {
   );
 
   if (!matchedUser) {
+    // Increment failed login for IP
+    if (!ipFailedLoginAttempts[clientIp]) {
+      ipFailedLoginAttempts[clientIp] = { count: 1, lockedUntil: 0 };
+    } else {
+      ipFailedLoginAttempts[clientIp].count++;
+    }
+    if (ipFailedLoginAttempts[clientIp].count >= 5) {
+      ipFailedLoginAttempts[clientIp].lockedUntil = Date.now() + 15 * 60 * 1000; // 15 mins
+    }
     return res.status(401).json({ error: 'The provided credentials do not match parameters inside the ERICON staff directory' });
   }
 
@@ -420,6 +554,17 @@ app.post('/api/auth/login', checkRateLimit, (req, res) => {
   }
 
   if (!isValid) {
+    // Increment failed login for IP
+    if (!ipFailedLoginAttempts[clientIp]) {
+      ipFailedLoginAttempts[clientIp] = { count: 1, lockedUntil: 0 };
+    } else {
+      ipFailedLoginAttempts[clientIp].count++;
+    }
+    if (ipFailedLoginAttempts[clientIp].count >= 5) {
+      ipFailedLoginAttempts[clientIp].lockedUntil = Date.now() + 15 * 60 * 1000; // 15 mins
+      logAction(`IP ${clientIp} locked out after 5 blockages`);
+    }
+
     if (!failedLoginAttempts[query]) {
       failedLoginAttempts[query] = { count: 1, lockedUntil: 0 };
     } else {
@@ -440,8 +585,12 @@ app.post('/api/auth/login', checkRateLimit, (req, res) => {
   if (failedLoginAttempts[query]) {
     failedLoginAttempts[query].count = 0;
   }
+  if (ipFailedLoginAttempts[clientIp]) {
+    ipFailedLoginAttempts[clientIp].count = 0;
+  }
 
   addAuditLog('SECURITY', `Security clearance granted for: ${matchedUser.username}. Logged in.`);
+  logAction(`${matchedUser.username} logged in`);
 
   res.json({
     success: true,
@@ -459,6 +608,170 @@ app.post('/api/auth/login', checkRateLimit, (req, res) => {
       isEmailVerified: matchedUser.isEmailVerified !== false
     }
   });
+});
+
+// --- TWO-STEP OTP AUTHENTICATION ENDPOINTS ---
+const activeOTPs: Record<string, { otp: string; expiresAt: number; email: string }> = {};
+
+app.post('/api/auth/check-account', (req, res) => {
+  const { usernameOrEmail } = req.body;
+  if (!usernameOrEmail) {
+    return res.status(400).json({ error: 'Username or Email is required' });
+  }
+  const query = usernameOrEmail.trim().toLowerCase();
+  const matchedUser = users.find(u => 
+    u.username.toLowerCase() === query || u.email.toLowerCase() === query
+  );
+  if (matchedUser) {
+    return res.json({ exists: true, email: matchedUser.email, username: matchedUser.username });
+  } else {
+    return res.json({ exists: false });
+  }
+});
+
+app.post('/api/auth/request-otp', async (req, res) => {
+  const { usernameOrEmail } = req.body;
+  if (!usernameOrEmail) {
+    return res.status(400).json({ error: 'Username or Email is required' });
+  }
+  const query = usernameOrEmail.trim().toLowerCase();
+  const matchedUser = users.find(u => 
+    u.username.toLowerCase() === query || u.email.toLowerCase() === query
+  );
+  if (!matchedUser) {
+    return res.status(404).json({ error: 'Scientist account not found inside ERICON directories' });
+  }
+
+  // Generate a random 6-digit cryptographic OTP token with 5 minutes expiration
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 5 * 60 * 1000;
+  activeOTPs[query] = { otp, expiresAt, email: matchedUser.email };
+
+  const clientIp = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+  addAuditLog('SECURITY', `Two-step security OTP token requested. Dispatching authorization coordinates.`, matchedUser.email, clientIp);
+  logAction(`OTP code ${otp} generated for user: ${matchedUser.username}`);
+
+  const resendApiKey = process.env.RESEND_API_KEY;
+  let sentViaResend = false;
+
+  if (resendApiKey) {
+    try {
+      const emailResponse = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${resendApiKey}`
+        },
+        body: JSON.stringify({
+          from: 'ERICON Gatewall <onboarding@resend.dev>',
+          to: 'jakonikojoshuaa@gmail.com', // Explicit requested OTP target
+          subject: '🔑 ERICON Biosecurity One-Time-Password (OTP)',
+          html: `
+            <div style="font-family: monospace; padding: 20px; background-color: #0b1510; color: #d0f0d0; border-radius: 8px; border: 1px solid #1a3a22;">
+              <h2 style="color: #4ade80; border-bottom: 1px solid #15462d; padding-bottom: 8px;">SECURITY ACCESS CLEARANCE GATEWALL</h2>
+              <p>Attention Chief Administrator / Staff Scientist,</p>
+              <p>A multi-factor biosecurity credential request has been dispatched. Use the unique 6-digit cryptographic token below to verify identity:</p>
+              <div style="background-color: #11281a; color: #10b981; font-size: 32px; font-weight: bold; text-align: center; padding: 15px; margin: 20px 0; border-radius: 4px; letter-spacing: 5px; border: 1px solid #059669;">
+                ${otp}
+              </div>
+              <p style="font-size: 11px; color: #829a8a;">This biosecurity token expires strictly in 5 minutes.</p>
+              <p style="font-size: 11px; color: #829a8a;">Originating IP: ${clientIp}</p>
+            </div>
+          `
+        })
+      });
+      if (emailResponse.ok) {
+        sentViaResend = true;
+        console.log(`[RESEND API OTP DELIVERED] Code ${otp} to jakonikojoshuaa@gmail.com`);
+      } else {
+        const errorText = await emailResponse.text();
+        console.error('[RESEND API OTP DISPATCH FAULT]', errorText);
+      }
+    } catch (err) {
+      console.error('[RESEND API CATASTROPHIC DISPATCH FAULT]', err);
+    }
+  }
+
+  // Backup logs and print to server console for Sandbox Fallback (Requirement 3)
+  console.log(`\n========================================\n[SECURITY HANDSHAKE OTP ACTIVATED]\nUser email: ${matchedUser.email}\nRecipient: jakonikojoshuaa@gmail.com\nSecure Code: ${otp}\nExpires at: ${new Date(expiresAt).toLocaleTimeString()}\n========================================\n`);
+
+  res.json({
+    success: true,
+    email: matchedUser.email,
+    sandbox: !sentViaResend,
+    otp: !sentViaResend ? otp : undefined
+  });
+});
+
+app.post('/api/auth/verify-otp', (req, res) => {
+  const { usernameOrEmail, otp } = req.body;
+  if (!usernameOrEmail || !otp) {
+    return res.status(400).json({ error: 'Username/Email and secure OTP are required coordinates' });
+  }
+
+  const query = usernameOrEmail.trim().toLowerCase();
+  const cached = activeOTPs[query];
+
+  if (!cached) {
+    return res.status(401).json({ error: 'No active security OTP request found for this session.' });
+  }
+
+  if (Date.now() > cached.expiresAt) {
+    delete activeOTPs[query];
+    return res.status(401).json({ error: 'The biosecurity OTP has expired (5-minute security limit exceeded).' });
+  }
+
+  if (cached.otp !== otp.trim()) {
+    return res.status(401).json({ error: 'Security OTP verification rejected. Invalid code sequence.' });
+  }
+
+  // Clear OTP token from memory once verified successfully
+  delete activeOTPs[query];
+
+  const matchedUser = users.find(u => 
+    u.username.toLowerCase() === query || u.email.toLowerCase() === query
+  );
+
+  if (!matchedUser) {
+    return res.status(404).json({ error: 'Scientist account mapping lost during verification sequence.' });
+  }
+
+  // Clear other temporary locks on successful login
+  if (failedLoginAttempts[query]) failedLoginAttempts[query].count = 0;
+  const clientIp = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+  if (ipFailedLoginAttempts[clientIp]) ipFailedLoginAttempts[clientIp].count = 0;
+
+  addAuditLog('SECURITY', `Biosecurity OTP verified successfully. Granted main access.`, matchedUser.email, clientIp);
+  logAction(`${matchedUser.username} authenticated successfully via OTP.`);
+
+  res.json({
+    success: true,
+    user: {
+      username: matchedUser.username,
+      email: matchedUser.email,
+      role: matchedUser.role,
+      institution: matchedUser.institution,
+      country: matchedUser.country || 'Tanzania',
+      profession: matchedUser.profession || 'Ecological Scientist',
+      classification: matchedUser.classification || 'Expert',
+      researchInterests: matchedUser.researchInterests || 'Pneumatic vectors',
+      orcid_id: matchedUser.orcid_id || '',
+      profileImage: matchedUser.profileImage || '',
+      isEmailVerified: true
+    }
+  });
+});
+
+app.get('/api/admin/audit-logs', (req, res) => {
+  const requesterEmail = req.headers['x-user-email'] as string;
+  if (!requesterEmail) {
+    return res.status(401).json({ error: 'Please submit user email authorization' });
+  }
+  const requesterUser = users.find(u => u.email.toLowerCase() === requesterEmail.trim().toLowerCase());
+  if (!requesterUser || requesterUser.role !== 'Admin') {
+    return res.status(403).json({ error: 'Access restricted to ERICON Administrators only.' });
+  }
+  res.json({ success: true, logs: auditLogs });
 });
 
 // C. EMAIL ADDRESS VERIFICATION RESPONSE
@@ -527,6 +840,8 @@ app.post('/api/auth/forgot-password', (req, res) => {
   activeResetTokens[token] = { email: matchedUser.email, expiresAt: Date.now() + 5 * 60 * 1000 };
 
   addAuditLog('SECURITY', `Self-serve biosecurity password reset token requested for: ${matchedUser.username}`);
+  console.log("RESET CODE SENT TO:", matchedUser.email, "CODE IS:", token);
+  logAction(`Password reset token requested for ${matchedUser.username}`);
 
   res.json({
     success: true,
@@ -595,6 +910,7 @@ app.post('/api/projects/create', (req, res) => {
   });
   saveCollaborationDB();
   addAuditLog('COLLABORATION', `New collaborative project created: "${newProject.name}" [Code: ${newProject.code}] by: ${creator}`);
+  logAction(`Project Created: ${newProject.name} by ${creator}`);
   res.json({ success: true, project: newProject });
 });
 
@@ -629,6 +945,7 @@ app.post('/api/projects/accept-invite', (req, res) => {
   });
   saveCollaborationDB();
   addAuditLog('COLLABORATION', `User "${username}" aligned with research project: "${targetProject.name}" via code "${cleanCode}".`);
+  logAction(`User ${username} joined project "${targetProject.name}"`);
 
   res.json({ success: true, project: targetProject });
 });
@@ -651,6 +968,10 @@ app.get('/api/projects/all-projects', (req, res) => {
 
 app.get('/api/projects/audit-logs', (req, res) => {
   res.json({ success: true, logs: auditLogs });
+});
+
+app.get('/api/action-logs', (req, res) => {
+  res.json({ success: true, logs: actionLogs });
 });
 
 // C. RETRIEVE SCHOLARLY FORUM THREAD INDEX

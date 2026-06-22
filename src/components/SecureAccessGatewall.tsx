@@ -13,15 +13,17 @@ interface SecureAccessGatewallProps {
   onCancel: () => void;
   onSuccess: (user: any) => void;
   initialStep?: 'login' | 'register';
+  isBlockPage?: boolean;
 }
 
 export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({ 
   tabAttempted = 'home', 
   onCancel, 
   onSuccess,
-  initialStep = 'login'
+  initialStep = 'login',
+  isBlockPage = false
 }) => {
-  const [step, setStep] = useState<'login' | 'register_step1' | 'register_step2' | 'register_step3' | 'forgot' | 'reset_submit'>(
+  const [step, setStep] = useState<string>(
     initialStep === 'register' ? 'register_step1' : 'login'
   );
 
@@ -36,6 +38,14 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [lockoutTimer, setLockoutTimer] = useState<number>(0);
+
+  // Two-Step OTP Authentication States
+  const [isAccountFound, setIsAccountFound] = useState(false);
+  const [otpToken, setOtpToken] = useState('');
+  const [otpSandbox, setOtpSandbox] = useState(false);
+  const [otpDemoCode, setOtpDemoCode] = useState<string | null>(null);
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
 
   // Register parameters
   const [regFirstName, setRegFirstName] = useState('');
@@ -234,6 +244,93 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
       setLoginError('Unable to connect to security database. Check host server connection.');
     } finally {
       setLoginLoading(false);
+    }
+  };
+
+  const handleUsernameOrEmailChange = async (val: string) => {
+    setLoginInput(val);
+    if (!val.trim()) {
+      setIsAccountFound(false);
+      return;
+    }
+    try {
+      const res = await fetch('/api/auth/check-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usernameOrEmail: val })
+      });
+      const data = await res.json();
+      if (data.exists) {
+        setIsAccountFound(true);
+      } else {
+        setIsAccountFound(false);
+      }
+    } catch (err) {
+      setIsAccountFound(false);
+    }
+  };
+
+  const handleNextClick = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loginInput.trim()) {
+      setLoginError('Email or username coordinates check is required.');
+      return;
+    }
+    setLoginError(null);
+    setLoginLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/request-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usernameOrEmail: loginInput.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setLoginError(data.error || 'Two-step OTP dispatch error.');
+      } else {
+        setOtpSandbox(!!data.sandbox);
+        setOtpDemoCode(data.otp || null);
+        setStep('otp_verification');
+        setOtpToken('');
+        setOtpError(null);
+      }
+    } catch (err) {
+      setLoginError('Security handshake failed. Check host connection.');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleOtpVerifySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otpToken.trim()) {
+      setOtpError('OTP token sequence is empty.');
+      return;
+    }
+    setOtpError(null);
+    setOtpLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          usernameOrEmail: loginInput.trim(),
+          otp: otpToken.trim()
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setOtpError(data.error || 'Access authorization rejected.');
+      } else {
+        localStorage.setItem('ericon_logged_scientist', JSON.stringify(data.user));
+        onSuccess(data.user);
+      }
+    } catch {
+      setOtpError('Security connection fault. Verify system router.');
+    } finally {
+      setOtpLoading(false);
     }
   };
 
@@ -455,14 +552,16 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
         {showTabs ? (
           <div className="flex bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 font-sans select-none relative" id="ericon-auth-gatewall-tabs">
             {/* Absolute Close/Cancel button for clean dismissal */}
-            <button 
-              type="button"
-              onClick={onCancel}
-              aria-label="Close Authentication Gateway"
-              className="absolute right-3 top-3.5 z-50 p-1.5 rounded-full text-slate-400 hover:text-slate-650 dark:hover:text-slate-250 hover:bg-slate-200/50 dark:hover:bg-slate-800/80 cursor-pointer border-0 bg-transparent flex items-center justify-center transition-all"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            {!isBlockPage && (
+              <button 
+                type="button"
+                onClick={onCancel}
+                aria-label="Close Authentication Gateway"
+                className="absolute right-3 top-3.5 z-50 p-1.5 rounded-full text-slate-400 hover:text-slate-650 dark:hover:text-slate-250 hover:bg-slate-200/50 dark:hover:bg-slate-800/80 cursor-pointer border-0 bg-transparent flex items-center justify-center transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
 
             {/* Left Tab: Log In */}
             <button
@@ -476,7 +575,7 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
               className={`w-1/2 py-5 px-4 flex flex-col items-center justify-center border-r border-slate-200 dark:border-slate-800 transition-all cursor-pointer ${
                 step === 'login' 
                   ? 'bg-white dark:bg-slate-900 border-b-2 border-b-[#15462D] text-slate-800 dark:text-white font-bold' 
-                  : 'bg-slate-100/80 dark:bg-slate-800/20 text-slate-400 hover:text-slate-550 dark:hover:text-slate-455 font-normal hover:bg-slate-100 dark:hover:bg-slate-800/10'
+                  : 'bg-slate-100/80 dark:bg-slate-800/20 text-slate-400 hover:text-slate-550 dark:hover:text-slate-455 font-normal hover:bg-slate-100 dark:hover:bg-slate-850/10'
               }`}
             >
               <span className="text-[10px] tracking-wide text-slate-400 dark:text-slate-500 font-medium leading-none mb-1 text-center">Already have an account?</span>
@@ -495,7 +594,7 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
               className={`w-1/2 py-5 px-4 flex flex-col items-center justify-center transition-all cursor-pointer ${
                 step === 'register_step1' 
                   ? 'bg-white dark:bg-slate-900 border-b-2 border-b-[#15462D] text-slate-800 dark:text-white font-bold' 
-                  : 'bg-slate-100/80 dark:bg-slate-800/20 text-slate-400 hover:text-slate-550 dark:hover:text-slate-455 font-normal hover:bg-slate-100 dark:hover:bg-slate-800/10'
+                  : 'bg-slate-100/80 dark:bg-slate-800/20 text-slate-400 hover:text-slate-550 dark:hover:text-slate-455 font-normal hover:bg-slate-100 dark:hover:bg-slate-850/10'
               }`}
             >
               <span className="text-[10px] tracking-wide text-slate-400 dark:text-slate-500 font-medium leading-none mb-1 text-center">Need an ERICON license?</span>
@@ -512,14 +611,16 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                 <p className="text-[8.5px] text-[#A6E8B6] font-bold leading-none mt-1">ERICON COHORT ONBOARDING SYSTEM (ER2026.V.1.0.2 CORE)</p>
               </div>
             </div>
-            <button 
-              type="button"
-              onClick={onCancel}
-              aria-label="Close Authentication Gateway"
-              className="p-1 rounded text-white/70 hover:text-white hover:bg-emerald-900/60 cursor-pointer border-0 bg-transparent flex items-center justify-center transition-all opacity-80 hover:opacity-100"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            {!isBlockPage && (
+              <button 
+                type="button"
+                onClick={onCancel}
+                aria-label="Close Authentication Gateway"
+                className="p-1 rounded text-white/70 hover:text-white hover:bg-emerald-900/60 cursor-pointer border-0 bg-transparent flex items-center justify-center transition-all opacity-80 hover:opacity-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         )}
 
@@ -559,13 +660,24 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                   </div>
                 </div>
 
+                {/* Email Verification Placeholder Alert */}
+                <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-250 dark:border-emerald-850 rounded p-3 text-emerald-800 dark:text-emerald-300 font-sans text-xs flex gap-2">
+                  <Shield className="w-4.5 h-4.5 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-430" />
+                  <div>
+                    <strong className="font-semibold block mb-0.5">Verification Required</strong>
+                    <p className="text-[10.5px] leading-relaxed">
+                      All new ERICON personnel must verify their ecological directory email before granting live telemetry write clearance. Check your simulated inbox for credentials.
+                    </p>
+                  </div>
+                </div>
+
                 {loginError && (
                   <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-905 text-rose-955 dark:text-rose-400 rounded text-xs select-none">
                     ⚠️ {loginError}
                   </div>
                 )}
 
-                <form onSubmit={handleLoginSubmit} className="space-y-4">
+                <form onSubmit={isAccountFound ? handleNextClick : handleLoginSubmit} className="space-y-4">
                   <div className="space-y-1.5 text-left">
                     <label className="block text-[11px] font-bold text-slate-550 dark:text-slate-405">Email or Username</label>
                     <div className="relative">
@@ -579,45 +691,47 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                         placeholder="sjenkins or s.jenkins@ericon.org"
                         value={loginInput}
                         id="login-input-username"
-                        onChange={(e) => setLoginInput(e.target.value)}
+                        onChange={(e) => handleUsernameOrEmailChange(e.target.value)}
                         className="w-full bg-white dark:bg-slate-800/80 border border-slate-205 dark:border-slate-705 focus:ring-1 focus:ring-[#15462D] focus:border-[#15462D] focus:outline-none rounded px-3.5 py-2.5 pl-10 text-slate-900 dark:text-white text-xs transition-all placeholder:text-slate-400"
                       />
                     </div>
                   </div>
 
-                  <div className="space-y-1.5 text-left">
-                    <div className="flex justify-between items-center">
-                      <label className="block text-[11px] font-bold text-slate-550 dark:text-slate-405">Password</label>
-                      <button 
-                        type="button" 
-                        onClick={() => setStep('forgot')}
-                        className="text-[#15462D] dark:text-[#5BB27D] hover:underline bg-transparent border-0 cursor-pointer font-bold py-0 text-[10.5px]"
-                      >
-                        forgot check?
-                      </button>
+                  {!isAccountFound && (
+                    <div className="space-y-1.5 text-left">
+                      <div className="flex justify-between items-center">
+                        <label className="block text-[11px] font-bold text-slate-550 dark:text-slate-405">Password</label>
+                        <button 
+                          type="button" 
+                          onClick={() => setStep('forgot')}
+                          className="text-[#15462D] dark:text-[#5BB27D] hover:underline bg-transparent border-0 cursor-pointer font-bold py-0 text-[10.5px]"
+                        >
+                          forgot check?
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-3 top-3 text-[#50bb7f] font-bold">
+                          <Lock className="w-4 h-4" />
+                        </span>
+                        <input
+                          type={loginMask ? 'password' : 'text'}
+                          required
+                          placeholder="••••••••••••••"
+                          value={loginPassword}
+                          id="login-input-password"
+                          onChange={(e) => setLoginPassword(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-800/80 border border-slate-205 dark:border-slate-705 focus:ring-1 focus:ring-[#15462D] focus:border-[#15462D] focus:outline-none rounded px-3.5 py-2.5 pl-10 pr-10 text-slate-900 dark:text-white text-xs transition-all placeholder:text-slate-400"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setLoginMask(!loginMask)}
+                          className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 bg-transparent border-0 cursor-pointer flex items-center justify-center select-none h-6"
+                        >
+                          {loginMask ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
-                    <div className="relative">
-                      <span className="absolute left-3 top-3 text-slate-400">
-                        <Lock className="w-4 h-4" />
-                      </span>
-                      <input
-                        type={loginMask ? 'password' : 'text'}
-                        required
-                        placeholder="••••••••••••••"
-                        value={loginPassword}
-                        id="login-input-password"
-                        onChange={(e) => setLoginPassword(e.target.value)}
-                        className="w-full bg-white dark:bg-slate-800/80 border border-slate-205 dark:border-slate-705 focus:ring-1 focus:ring-[#15462D] focus:border-[#15462D] focus:outline-none rounded px-3.5 py-2.5 pl-10 pr-10 text-slate-900 dark:text-white text-xs transition-all placeholder:text-slate-400"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setLoginMask(!loginMask)}
-                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 bg-transparent border-0 cursor-pointer flex items-center justify-center select-none h-6"
-                      >
-                        {loginMask ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
+                  )}
 
                   <div className="flex items-center gap-2 select-none py-1 text-slate-500 dark:text-slate-450 text-left">
                     <input 
@@ -633,9 +747,9 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                   <button
                     type="submit"
                     disabled={loginLoading}
-                    className="w-full bg-[#15462D] hover:bg-[#0E301E] active:bg-[#0A2215] disabled:opacity-50 text-white font-semibold py-3 px-4 rounded shadow-sm border-0 cursor-pointer flex items-center justify-center gap-2 text-sm transition-all"
+                    className="w-full bg-[#15462D] hover:bg-[#0E301E] active:bg-[#0A2215] disabled:opacity-50 text-white font-semibold py-3 px-4 rounded shadow-sm border-0 cursor-pointer flex items-center justify-center gap-2 text-sm transition-all text-center uppercase tracking-wider"
                   >
-                    {loginLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Log in'}
+                    {loginLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : isAccountFound ? 'Next' : 'Log in'}
                   </button>
                 </form>
 
@@ -685,6 +799,97 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                   <a href="#/terms" onClick={(e) => { e.preventDefault(); alert('ERICON Portal Terms of Use.'); }} className="text-[#15462D] dark:text-[#5BB27D] hover:underline font-semibold font-sans">ERICON Portal Service Terms of Use</a>{' '}
                   and{' '}
                   <a href="#/privacy" onClick={(e) => { e.preventDefault(); alert('ERICON Data Privacy Standard details.'); }} className="text-[#15462D] dark:text-[#5BB27D] hover:underline font-semibold font-sans">Privacy Policy</a>.
+                </div>
+              </motion.div>
+            )}
+
+            {/* OTP VERIFICATION STATE */}
+            {step === 'otp_verification' && (
+              <motion.div
+                key="otp-verification-view"
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{ duration: 0.15 }}
+                className="space-y-5"
+              >
+                {/* Brand Header */}
+                <div className="flex items-center gap-3 pb-2 border-b border-slate-105 dark:border-slate-800">
+                  <ShieldCheck className="w-6 h-6 text-emerald-500 shrink-0" />
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight">Two-Step Authentication</h3>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-none mt-0.5 font-mono">
+                      Multi-Factor Security Clearance Check
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                  A high-security, 6-digit biometric dispatch code has been generated. Use the authorization token below to confirm your session identity.
+                </div>
+
+                {/* Sandbox Fallback Banner (Requirement 3) */}
+                {otpSandbox && (
+                  <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-250 dark:border-amber-900 rounded p-3 text-amber-800 dark:text-amber-300 font-sans text-xs flex gap-2 text-left">
+                    <AlertTriangle className="w-4.5 h-4.5 shrink-0 mt-0.5 text-amber-600" />
+                    <div>
+                      <strong className="font-semibold block mb-0.5">Sandbox Environment Enabled</strong>
+                      <p className="text-[10.5px] leading-relaxed">
+                        The email API key is missing. The random biosecurity OTP has been printed to the server logs. Use the temporary bypass code displayed below to test:
+                      </p>
+                      <div className="inline-block mt-2 font-mono font-bold bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 px-3 py-1 rounded border border-amber-300 dark:border-amber-800 tracking-widest text-sm">
+                        {otpDemoCode || 'Retrieving...'}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {otpError && (
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-905 text-rose-955 dark:text-rose-400 rounded text-xs select-none">
+                    ⚠️ {otpError}
+                  </div>
+                )}
+
+                <form onSubmit={handleOtpVerifySubmit} className="space-y-4">
+                  <div className="space-y-1.5 text-left">
+                    <label className="block text-[11px] font-bold text-slate-550 dark:text-slate-405 uppercase tracking-wide">6-Digit Cryptographic Code</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-3 text-slate-200 font-bold">
+                        <KeyRound className="w-4 h-4" />
+                      </span>
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        placeholder="ENTER SECURE OTP"
+                        value={otpToken}
+                        onChange={(e) => setOtpToken(e.target.value.replace(/\D/g, ''))}
+                        className="w-full bg-white dark:bg-slate-800/80 border border-slate-205 dark:border-slate-705 focus:ring-1 focus:ring-[#15462D] focus:border-[#15462D] focus:outline-none rounded px-3.5 py-2.5 pl-10 text-slate-900 dark:text-white text-xs font-mono tracking-[4px] placeholder:tracking-normal font-bold transition-all placeholder:text-slate-400 text-center"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={otpLoading}
+                    className="w-full bg-[#15462D] hover:bg-[#0E301E] active:bg-[#0A2215] disabled:opacity-50 text-white font-semibold py-3 px-4 rounded shadow-sm border-0 cursor-pointer flex items-center justify-center gap-2 text-sm transition-all uppercase tracking-wider font-sans"
+                  >
+                    {otpLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Verify Security Token'}
+                  </button>
+                </form>
+
+                <div className="pt-2 text-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStep('login');
+                      setIsAccountFound(false);
+                      setOtpError(null);
+                    }}
+                    className="text-xs font-semibold text-[#15462D] dark:text-[#5BB27D] hover:underline bg-transparent border-0 cursor-pointer"
+                  >
+                    ← Back to Login Step
+                  </button>
                 </div>
               </motion.div>
             )}
@@ -1144,7 +1349,7 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                     onClick={() => { setStep('login'); setRegError(null); }}
                     className="text-slate-450 hover:text-slate-805 uppercase font-bold text-[10.5px] bg-transparent border-0 cursor-pointer p-0"
                   >
-                    ← Sign In menu
+                    ← Back to Login
                   </button>
                 </div>
               </motion.div>
@@ -1223,6 +1428,16 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                     {resetLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin mx-auto" /> : '🔐 Upgrade My Biosecurity Password'}
                   </button>
                 </form>
+
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-805 flex justify-between mt-4">
+                  <button 
+                    type="button" 
+                    onClick={() => { setStep('login'); setRegError(null); }}
+                    className="text-slate-450 hover:text-slate-805 uppercase font-bold text-[10.5px] bg-transparent border-0 cursor-pointer p-0"
+                  >
+                    ← Back to Login
+                  </button>
+                </div>
               </motion.div>
             )}
 
