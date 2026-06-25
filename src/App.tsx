@@ -1801,12 +1801,12 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
   if (currentUser === null) {
     return (
       <div 
-        className={`min-h-screen bg-slate-900 text-slate-100 font-sans flex items-center justify-center p-4 relative overflow-hidden`} 
+        className={`min-h-screen bg-slate-100 text-slate-900 font-sans flex items-center justify-center p-4 relative overflow-hidden`} 
         id="app-root-auth-block"
       >
         {/* Ambient tech styling background */}
-        <div className="absolute inset-0 bg-[#0B2114] opacity-75 z-0" style={{ 
-          backgroundImage: 'radial-gradient(#15462D 1.2px, transparent 1.2px)', 
+        <div className="absolute inset-0 bg-[#f8fafc] opacity-90 z-0" style={{ 
+          backgroundImage: 'radial-gradient(#15462D 1.5px, transparent 1.5px)', 
           backgroundSize: '32px 32px'
         }} />
         
@@ -1929,9 +1929,9 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
         /* PROFESSIONAL DEEP PURPLE HIGH-CONTRAST NIGHT THEME */
         .visual-mode-night, 
         .visual-mode-night #app-root {
-          background-color: #0b0214 !important;
-          color: #eae2f8 !important;
-          background-image: radial-gradient(#3a0d63 1px, transparent 1px) !important;
+          background-color: #1a102f !important; /* Modern eye-friendly neutral dark purple, not solid black */
+          color: #f5f3ff !important;
+          background-image: radial-gradient(#4c1d95 1px, transparent 1px) !important;
         }
 
         /* Clean Word Rendering: Normal text stays soft lavender silver and sharp on dark backgrounds */
@@ -1941,7 +1941,7 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
         .visual-mode-night th,
         .visual-mode-night td {
           text-shadow: none !important;
-          color: #e1daf4 !important;
+          color: #f5f3ff !important; /* High contrast bright text */
         }
 
         /* Elegant Lavender Silver for Secondary Slate colors */
@@ -1950,7 +1950,7 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
         .visual-mode-night .text-slate-500,
         .visual-mode-night .text-slate-605,
         .visual-mode-night .text-slate-655 {
-          color: #a78bfa !important;
+          color: #ddd6fe !important; /* Extremely sharp contrast */
           opacity: 1 !important;
           text-shadow: none !important;
         }
@@ -1960,23 +1960,23 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
         .visual-mode-night .bg-slate-905,
         .visual-mode-night .bg-slate-950,
         .visual-mode-night .bg-slate-950\/80 {
-          background-color: #130628 !important;
-          border-color: #4c1d95 !important;
+          background-color: #2e1065 !important; /* Warm vibrant purple with great legibility */
+          border-color: #7c3aed !important;
         }
 
         /* Prevent bg-slate-900 panels and Co-Pilot container from turning white */
         .visual-mode-night .bg-slate-900,
         .visual-mode-night #ai-panel-container {
-          background-color: #130628 !important;
-          border-color: #4c1d95 !important;
+          background-color: #2e1065 !important;
+          border-color: #7c3aed !important;
         }
 
         /* Elegant Deep Purple Sub-Cards matching the sleek dark layout */
         .visual-mode-night .bg-slate-50,
         .visual-mode-night .bg-slate-100,
         .visual-mode-night .bg-slate-50\/50 {
-          background-color: #1d0e3a !important; /* Sleek slightly lighter deep purple */
-          border-color: #4c1d95 !important;
+          background-color: #4c1d95 !important; /* Brighter neutral purple accent, not solid black */
+          border-color: #7c3aed !important;
         }
 
         .visual-mode-night .bg-slate-50 p,
@@ -1991,7 +1991,7 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
         .visual-mode-night .bg-slate-50\/50 span,
         .visual-mode-night .bg-slate-50\/50 label,
         .visual-mode-night .bg-slate-50\/50 strong {
-          color: #e1daf4 !important;
+          color: #f5f3ff !important;
           font-weight: 700 !important;
         }
 
@@ -2007,6 +2007,79 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
         .visual-mode-night .bg-slate-100 b {
           color: #ffffff !important;
           font-weight: 800 !important;
+        }
+
+        /* GLOBAL OVERRIDES TO TOTALLY REMOVE SOLID BLACK BACKGROUNDS IN DARK MODE & BOOST LEGIBILITY */
+        .dark,
+        .dark-theme,
+        #app-root.dark,
+        #app-root.dark-theme {
+          background-color: #0f172a !important; /* Modern slate-900 neutral background, not solid black */
+          color: #f8fafc !important;
+          background-image: radial-gradient(#334155 0.8px, transparent 0.8px) !important;
+        }
+
+        .dark .bg-slate-950,
+        .dark .bg-slate-950\/80,
+        .dark-theme .bg-slate-950,
+        .dark-theme .bg-slate-950\/80,
+        .dark .bg-black,
+        .dark-theme .bg-black {
+          background-color: #1e293b !important; /* Elegant high-contrast slate-800 card */
+          border-color: #475569 !important;
+        }
+
+        .dark .bg-slate-900,
+        .dark-theme .bg-slate-900 {
+          background-color: #1e293b !important;
+          border-color: #475569 !important;
+        }
+
+        .dark .bg-slate-50,
+        .dark .bg-slate-100,
+        .dark .bg-slate-50\/50,
+        .dark-theme .bg-slate-50,
+        .dark-theme .bg-slate-100 {
+          background-color: #334155 !important; /* Light-contrast slate-700 card */
+          border-color: #475569 !important;
+        }
+
+        /* TEXT COLOUR BOOST FOR LEGIBILITY & HIGH CONTRAST IN DARK MODE */
+        .dark p, 
+        .dark span:not(.text-emerald-400):not(.text-emerald-500):not(.text-rose-500), 
+        .dark label, 
+        .dark th, 
+        .dark td,
+        .dark-theme p, 
+        .dark-theme span:not(.text-emerald-400):not(.text-emerald-500):not(.text-rose-500), 
+        .dark-theme label, 
+        .dark-theme th, 
+        .dark-theme td {
+          color: #f1f5f9 !important; /* Ensure sharp, ultra-readable text */
+          text-shadow: none !important;
+        }
+
+        .dark h1, .dark h2, .dark h3, .dark h4, .dark strong,
+        .dark-theme h1, .dark-theme h2, .dark-theme h3, .dark-theme h4, .dark-theme strong {
+          color: #ffffff !important; /* High contrast pure white titles */
+          font-weight: 800 !important;
+          text-shadow: none !important;
+        }
+
+        .dark .text-slate-400, .dark .text-slate-500,
+        .dark-theme .text-slate-400, .dark-theme .text-slate-500 {
+          color: #cbd5e1 !important; /* Legible soft gray instead of illegible dark gray */
+        }
+
+        /* LIGHT MODE CONTRAST BOOST */
+        #app-root:not(.dark):not(.dark-theme):not(.visual-mode-night) p,
+        #app-root:not(.dark):not(.dark-theme):not(.visual-mode-night) span:not(.text-emerald-600):not(.text-[#15462D]):not(.text-rose-500),
+        #app-root:not(.dark):not(.dark-theme):not(.visual-mode-night) label {
+          color: #1e293b !important; /* Deep slate, sharp and legible */
+        }
+        #app-root:not(.dark):not(.dark-theme):not(.visual-mode-night) .text-slate-400,
+        #app-root:not(.dark):not(.dark-theme):not(.visual-mode-night) .text-slate-500 {
+          color: #334155 !important; /* Dark slate grey for ultra-clear visibility */
         }
 
         .visual-mode-night .bg-slate-50 strong,
@@ -3986,29 +4059,44 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
         id="ericon-sticky-topbar"
       >
         {/* Logo & Brand on far-left (hidden on desktop because sidebar has it, visible on mobile) */}
-        <div className="flex lg:hidden items-center gap-1.5 select-none" id="ericon-mobile-brand-and-toggle">
+        <div className="flex lg:hidden items-center gap-1 sm:gap-1.5 select-none min-w-0 flex-shrink-0" id="ericon-mobile-brand-and-toggle">
           {/* Toggle Drawer Button on Mobile (far-left) */}
           <button
             type="button"
             onClick={() => setShowSideDropdown(!showSideDropdown)}
-            className="p-1.5 text-slate-500 hover:text-[#15462D] dark:text-slate-400 dark:hover:text-emerald-430 bg-transparent border-0 cursor-pointer flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors mr-1"
+            className="p-1.5 text-slate-500 hover:text-[#15462D] dark:text-slate-400 dark:hover:text-emerald-430 bg-transparent border-0 cursor-pointer flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors mr-1 flex-shrink-0"
             title="Open Control Panel Navigation Hub"
             id="ericon-mobile-nav-toggle"
           >
-            <Menu className="w-4.5 h-4.5" />
+            <Menu className="w-4 h-4 flex-shrink-0" />
           </button>
           
-          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setActiveTab('home')}>
+          <div className="flex items-center gap-1.5 sm:gap-2.5 cursor-pointer min-w-0 flex-shrink-0" onClick={() => setActiveTab('home')}>
             <EriconLogo size="compact" interactive={true} className="flex-shrink-0" />
-            <div id="ericon-header-brand-title" className="flex flex-col text-left">
-              <h1 className="text-xs font-mono font-black tracking-widest text-[#15462D] dark:text-emerald-400 uppercase leading-none">
+            <div id="ericon-header-brand-title" className="flex flex-col text-left min-w-0">
+              <h1 className="text-[10px] sm:text-xs font-mono font-black tracking-widest text-[#15462D] dark:text-emerald-400 uppercase leading-none truncate">
                 ERICON
               </h1>
-              <span className="text-[7.2px] text-slate-400 dark:text-slate-500 font-bold leading-none mt-1 uppercase">
+              <span className="text-[6.5px] sm:text-[7.2px] text-slate-400 dark:text-slate-500 font-bold leading-none mt-1 uppercase truncate">
                 ER2026.V.1.0.2 CORE
               </span>
             </div>
           </div>
+
+          {/* Pin Button on mobile header so they can lock/unlock things too! */}
+          <button
+            type="button"
+            onClick={() => setIsSidebarPinned(!isSidebarPinned)}
+            className={`p-1 rounded cursor-pointer transition-all duration-300 border flex-shrink-0 ml-1.5 ${
+              isSidebarPinned 
+                ? 'border-emerald-500/15 bg-emerald-500/10 dark:bg-emerald-500/5' 
+                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900 border-transparent'
+            }`}
+            title={isSidebarPinned ? "Sidebar is active locked" : "Sidebar is temporary (click to lock pin)"}
+            id="ericon-mobile-pin-btn"
+          >
+            <Pin className={`w-3.5 h-3.5 flex-shrink-0 ${isSidebarPinned ? 'active-pin-animation' : 'transition-transform duration-300'}`} />
+          </button>
         </div>
 
         {/* Global info identifier for desktop to balance space */}
@@ -4414,7 +4502,7 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 24, stiffness: 180 }}
-              className="fixed right-0 top-0 h-screen w-85 md:w-96 bg-white dark:bg-slate-900 border-l-2 border-slate-200 dark:border-slate-800 shadow-2xl z-55 overflow-y-auto font-mono text-xs flex flex-col justify-between"
+              className="fixed right-0 top-0 h-screen w-[85vw] max-w-[340px] bg-white dark:bg-slate-900 border-l-2 border-slate-200 dark:border-slate-800 shadow-2xl z-55 overflow-y-auto font-mono text-xs flex flex-col justify-between"
               id="side-nav-slideout-drawer"
             >
               <div className="p-5 space-y-6">
