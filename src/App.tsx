@@ -1897,6 +1897,35 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
           color: #ffffff !important;
         }
 
+        /* ACTIVE PIN ICON ANIMATION */
+        @keyframes active-pin-blink {
+          0%, 100% {
+            color: #10b981 !important; /* emerald-500 */
+            filter: drop-shadow(0 0 2px rgba(16, 185, 129, 0.4));
+            opacity: 0.65;
+          }
+          50% {
+            color: #059669 !important; /* emerald-600 */
+            filter: drop-shadow(0 0 8px rgba(5, 150, 105, 0.9));
+            opacity: 1;
+          }
+        }
+
+        @keyframes active-pin-rotate {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
+        .active-pin-animation {
+          animation: active-pin-blink 1.8s infinite ease-in-out, active-pin-rotate 9s infinite linear !important;
+          display: inline-block !important;
+          transform-origin: center !important;
+        }
+
         /* PROFESSIONAL DEEP PURPLE HIGH-CONTRAST NIGHT THEME */
         .visual-mode-night, 
         .visual-mode-night #app-root {
@@ -4964,12 +4993,12 @@ The ERICON scientific advisory model could not compile a response. Reason: *${e.
                   onClick={() => setIsSidebarPinned(!isSidebarPinned)}
                   className={`p-1 rounded cursor-pointer transition-all duration-300 border ${
                     isSidebarPinned 
-                      ? 'active-lock-blinking border-transparent text-white' 
+                      ? 'border-emerald-500/15 bg-emerald-500/10 dark:bg-emerald-500/5' 
                       : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900 border-transparent'
                   }`}
                   title={isSidebarPinned ? "Sidebar is active locked" : "Sidebar is temporary (click to lock pin)"}
                 >
-                  <Pin className={`w-3.5 h-3.5 transition-transform duration-300 ${isSidebarPinned ? 'rotate-45 scale-110' : ''}`} />
+                  <Pin className={`w-3.5 h-3.5 ${isSidebarPinned ? 'active-pin-animation' : 'transition-transform duration-300'}`} />
                 </button>
 
                 <button
