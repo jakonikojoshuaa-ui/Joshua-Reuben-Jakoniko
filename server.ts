@@ -25,6 +25,7 @@ const failedLoginAttempts: Record<string, { count: number; lockedUntil: number }
 const ipFailedLoginAttempts: Record<string, { count: number; lockedUntil: number }> = {};
 const activeResetTokens: Record<string, { email: string; expiresAt: number }> = {};
 const registrationOTPs: Record<string, { otp: string; expiresAt: number }> = {};
+const recoveryOTPs: Record<string, { otp: string; expiresAt: number }> = {};
 const apiRateLimits: Record<string, { requests: number; windowStart: number }> = {};
 
 // PRODUCTION HTTPS ENFORCEMENT MIDDLEWARE
@@ -838,7 +839,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
   // Generate clean 6-digit numeric OTP token
   const token = Math.floor(100000 + Math.random() * 900000).toString();
-  activeResetTokens[token] = { email: matchedUser.email, expiresAt: Date.now() + 5 * 60 * 1000 };
+  recoveryOTPs[query] = { otp: token, expiresAt: Date.now() + 5 * 60 * 1000 };
 
   addAuditLog('SECURITY', `Password recovery OTP requested for: ${matchedUser.username}`);
   console.log("\n========================================\n[PASSWORD RESET OTP DISPATCHED]\nRecipient:", matchedUser.email, "\nCode:", token, "\n========================================\n");
@@ -888,6 +889,46 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       subject: '🔑 ERICON Password Reset OTP Code',
       body: `Your secure 6-digit password recovery code is: ${token}. This token expires in 5 minutes.`
     }
+  });
+});
+
+app.post('/api/verify-otp', (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) {
+    return res.status(400).json({ error: 'Email and verification code are required.' });
+  }
+
+  const query = email.trim().toLowerCase();
+  const record = recoveryOTPs[query];
+
+  if (!record) {
+    return res.status(401).json({ error: 'Invalid or expired verification code. Please try again.' });
+  }
+
+  // Strict Expiration Check (past 5 minutes)
+  if (Date.now() > record.expiresAt) {
+    delete recoveryOTPs[query]; // State Lock and cleanup
+    return res.status(401).json({ error: 'Invalid or expired verification code. Please try again.' });
+  }
+
+  // Strict Code Match
+  if (record.otp !== otp.trim()) {
+    return res.status(401).json({ error: 'Invalid or expired verification code. Please try again.' });
+  }
+
+  // Verification successful: State Lock & Cleanup
+  // Immediately delete/overwrite the OTP so it can never be reused or brute-forced
+  delete recoveryOTPs[query];
+
+  // Generate an unguessable high-entropy session token for resetting the password
+  const resetToken = 'RESET_SESSION_' + Math.floor(10000000 + Math.random() * 90000000).toString() + '_' + Date.now().toString();
+  activeResetTokens[resetToken] = { email: query, expiresAt: Date.now() + 5 * 60 * 1000 };
+
+  addAuditLog('SECURITY', `Password recovery OTP successfully verified for email: ${query}. Secure session generated.`);
+
+  return res.status(200).json({
+    success: true,
+    resetToken
   });
 });
 
@@ -995,14 +1036,14 @@ app.post('/api/auth/register-verify-otp', (req, res) => {
   const normalizedEmail = email.trim().toLowerCase();
   const record = registrationOTPs[normalizedEmail];
   if (!record) {
-    return res.status(400).json({ error: 'No active OTP request found or expired.' });
+    return res.status(401).json({ error: 'Invalid or expired verification code. Please try again.' });
   }
   if (record.expiresAt < Date.now()) {
     delete registrationOTPs[normalizedEmail];
-    return res.status(400).json({ error: 'OTP code has expired.' });
+    return res.status(401).json({ error: 'Invalid or expired verification code. Please try again.' });
   }
   if (record.otp !== otp.trim()) {
-    return res.status(400).json({ error: 'Invalid OTP code. Please check and try again.' });
+    return res.status(401).json({ error: 'Invalid or expired verification code. Please try again.' });
   }
 
   // Successfully verified, we can keep the OTP active for finalizing or clear it

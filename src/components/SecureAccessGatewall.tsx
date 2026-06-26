@@ -28,6 +28,7 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [resendStatus, setResendStatus] = useState<'sending' | 'sent' | null>(null);
+  const [resetToken, setResetToken] = useState<string | null>(null);
 
   // Form Fields
   const [email, setEmail] = useState('');
@@ -91,6 +92,23 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
         setOtpDigits(nextDigits);
         otpRefs.current[index - 1]?.focus();
       }
+    }
+  };
+
+  const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pastedData = e.clipboardData.getData('text') || '';
+    const cleanDigits = pastedData.replace(/\D/g, '').split('').slice(0, 6);
+    if (cleanDigits.length > 0) {
+      const nextDigits = [...otpDigits];
+      for (let i = 0; i < 6; i++) {
+        if (cleanDigits[i]) {
+          nextDigits[i] = cleanDigits[i];
+        }
+      }
+      setOtpDigits(nextDigits);
+      const nextFocus = Math.min(cleanDigits.length, 5);
+      otpRefs.current[nextFocus]?.focus();
     }
   };
 
@@ -336,7 +354,25 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
       return;
     }
     setError(null);
-    setStep('forgot_step3');
+    setLoading(true);
+    try {
+      const res = await fetch('/api/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), otp })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Invalid or expired verification code. Please try again.');
+      } else {
+        setResetToken(data.resetToken);
+        setStep('forgot_step3');
+      }
+    } catch {
+      setError('Unable to verify code with security directory.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Resend OTP for Forgot Password Recovery Flow
@@ -378,11 +414,10 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
     setError(null);
     setLoading(true);
     try {
-      const otp = otpDigits.join('');
       const res = await fetch('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: otp, newPassword: password })
+        body: JSON.stringify({ token: resetToken, newPassword: password })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -392,6 +427,7 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
         setError(null);
         setPassword('');
         setConfirmPassword('');
+        setResetToken(null);
         alert('Password reset successfully. Please log in.');
       }
     } catch {
@@ -635,6 +671,7 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                         value={digit}
                         onChange={(e) => handleOtpChange(index, e.target.value)}
                         onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                        onPaste={handleOtpPaste}
                         className="w-11 h-11 text-center text-lg font-bold bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-[#10b981]/50 focus:border-[#10b981] focus:outline-none rounded-xl text-slate-900 dark:text-white transition-all font-mono"
                       />
                     ))}
@@ -824,6 +861,7 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                         value={digit}
                         onChange={(e) => handleOtpChange(index, e.target.value)}
                         onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                        onPaste={handleOtpPaste}
                         className="w-11 h-11 text-center text-lg font-bold bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-[#10b981]/50 focus:border-[#10b981] focus:outline-none rounded-xl text-slate-900 dark:text-white transition-all font-mono"
                       />
                     ))}
