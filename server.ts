@@ -24,6 +24,7 @@ function logAction(message: string) {
 const failedLoginAttempts: Record<string, { count: number; lockedUntil: number }> = {};
 const ipFailedLoginAttempts: Record<string, { count: number; lockedUntil: number }> = {};
 const activeResetTokens: Record<string, { email: string; expiresAt: number }> = {};
+const registrationOTPs: Record<string, { otp: string; expiresAt: number }> = {};
 const apiRateLimits: Record<string, { requests: number; windowStart: number }> = {};
 
 // PRODUCTION HTTPS ENFORCEMENT MIDDLEWARE
@@ -826,30 +827,66 @@ app.post('/api/auth/update-profile', (req, res) => {
 });
 
 // E. PASSWORDS RECOVERY SYSTEMS
-app.post('/api/auth/forgot-password', (req, res) => {
+app.post('/api/auth/forgot-password', async (req, res) => {
   const { email } = req.body;
-  if (!email) return res.status(400).json({ error: 'Please enter a valid email address' });
+  if (!email) return res.status(400).json({ error: 'Please enter a valid email address.' });
   const query = email.trim().toLowerCase();
   const matchedUser = users.find(u => u.email.toLowerCase() === query);
   if (!matchedUser) {
-    return res.status(404).json({ error: 'User with this email is not present inside our scientist catalogs' });
+    return res.status(404).json({ error: 'This email address does not exist in our database.' });
   }
 
-  // Generate a valid 5-min expiratory token code
-  const token = 'RESET-' + Math.random().toString(36).substring(2, 6).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+  // Generate clean 6-digit numeric OTP token
+  const token = Math.floor(100000 + Math.random() * 900000).toString();
   activeResetTokens[token] = { email: matchedUser.email, expiresAt: Date.now() + 5 * 60 * 1000 };
 
-  addAuditLog('SECURITY', `Self-serve biosecurity password reset token requested for: ${matchedUser.username}`);
-  console.log("RESET CODE SENT TO:", matchedUser.email, "CODE IS:", token);
-  logAction(`Password reset token requested for ${matchedUser.username}`);
+  addAuditLog('SECURITY', `Password recovery OTP requested for: ${matchedUser.username}`);
+  console.log("\n========================================\n[PASSWORD RESET OTP DISPATCHED]\nRecipient:", matchedUser.email, "\nCode:", token, "\n========================================\n");
+  logAction(`Password recovery OTP generated for ${matchedUser.username}`);
+
+  const resendApiKey = process.env.RESEND_API_KEY;
+  let sentViaResend = false;
+
+  if (resendApiKey) {
+    try {
+      const emailResponse = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${resendApiKey}`
+        },
+        body: JSON.stringify({
+          from: 'ERICON Gatewall <onboarding@resend.dev>',
+          to: 'jakonikojoshuaa@gmail.com', // Override target per workspace integration
+          subject: '🔑 ERICON Password Reset OTP Code',
+          html: `
+            <div style="font-family: sans-serif; padding: 24px; max-width: 480px; margin: 0 auto; background-color: #121824; color: #f8fafc; border-radius: 12px; border: 1px solid #1e293b;">
+              <h2 style="color: #10b981; font-weight: 700; margin-bottom: 16px; font-size: 20px;">Reset Your Password</h2>
+              <p style="font-size: 14px; color: #cbd5e1; line-height: 1.5;">You requested a password reset. Use the 6-digit recovery OTP code below to complete the setup:</p>
+              <div style="background-color: #1e293b; color: #10b981; font-size: 32px; font-weight: bold; text-align: center; padding: 16px; margin: 24px 0; border-radius: 8px; letter-spacing: 6px; border: 1px solid #334155;">
+                ${token}
+              </div>
+              <p style="font-size: 12px; color: #64748b; margin-top: 20px;">This OTP verification code will expire in 5 minutes.</p>
+            </div>
+          `
+        })
+      });
+      if (emailResponse.ok) {
+        sentViaResend = true;
+      }
+    } catch (err) {
+      console.error('[RESEND PASSWORD RESET FAULT]', err);
+    }
+  }
 
   res.json({
     success: true,
-    message: 'Forgot password reset code initialized and dispatched to proxy email successfully.',
+    sandbox: !sentViaResend,
     token,
     simulatedEmailInboxPayload: {
-      subject: '🔐 ERICON Networks Credentials Upgrade Directive',
-      text: `Hello Scientist ${matchedUser.username},\n\nA password reset request was initiated for your ERICON platform staff directory login. Your secure one-time token is: ${token}.\n\nThis token will expire in exactly 5 minutes due to LEVEL-5 security rules.\n\nUse this coordinate to upgrade your credentials.`
+      recipient: matchedUser.email,
+      subject: '🔑 ERICON Password Reset OTP Code',
+      body: `Your secure 6-digit password recovery code is: ${token}. This token expires in 5 minutes.`
     }
   });
 });
@@ -857,31 +894,173 @@ app.post('/api/auth/forgot-password', (req, res) => {
 app.post('/api/auth/reset-password', (req, res) => {
   const { token, newPassword } = req.body;
   if (!token || !newPassword) {
-    return res.status(400).json({ error: 'Verification token and complex replacement password are required' });
+    return res.status(400).json({ error: 'Token and new password are required.' });
   }
   const record = activeResetTokens[token];
   if (!record) {
-    return res.status(400).json({ error: 'Reset token is invalid or has already been consumed' });
+    return res.status(400).json({ error: 'Verification token is invalid or has expired.' });
   }
   if (record.expiresAt < Date.now()) {
     delete activeResetTokens[token];
-    return res.status(400).json({ error: 'Reset token has expired (5 minute maximum time limit surpassed)' });
+    return res.status(400).json({ error: 'Verification token has expired.' });
   }
 
   const matchedUser = users.find(u => u.email.toLowerCase() === record.email.toLowerCase());
   if (!matchedUser) {
-    return res.status(404).json({ error: 'Associated user credentials not found' });
+    return res.status(404).json({ error: 'Associated user account not found.' });
   }
 
   matchedUser.passwordHash = bcrypt.hashSync(newPassword, 10);
   delete activeResetTokens[token];
   saveCollaborationDB();
 
-  addAuditLog('SECURITY', `Password upgraded successfully via secure reset token for user: ${matchedUser.username}`);
+  addAuditLog('SECURITY', `Password upgraded successfully via secure recovery code for user: ${matchedUser.username}`);
 
   res.json({
     success: true,
-    message: 'Biosecurity password updated and hashed successfully. Return to Sign In with your new password.'
+    message: 'Password reset successfully. Please log in with your new password.'
+  });
+});
+
+// F. PROGRESSIVE REGISTRATION SYSTEM ENDPOINTS
+app.post('/api/auth/register-send-otp', checkRateLimit, async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Email address is required.' });
+  }
+  const normalizedEmail = email.trim().toLowerCase();
+  const emailExists = users.some(u => u.email.toLowerCase() === normalizedEmail);
+  if (emailExists) {
+    return res.status(400).json({ error: 'This email is already registered.' });
+  }
+
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  registrationOTPs[normalizedEmail] = { otp, expiresAt: Date.now() + 5 * 60 * 1000 };
+
+  console.log("\n========================================\n[REGISTRATION OTP DISPATCHED]\nEmail:", normalizedEmail, "\nCode:", otp, "\n========================================\n");
+  logAction(`Registration OTP generated for ${normalizedEmail}`);
+
+  const resendApiKey = process.env.RESEND_API_KEY;
+  let sentViaResend = false;
+
+  if (resendApiKey) {
+    try {
+      const emailResponse = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${resendApiKey}`
+        },
+        body: JSON.stringify({
+          from: 'ERICON Gatewall <onboarding@resend.dev>',
+          to: 'jakonikojoshuaa@gmail.com', // Override target per workspace integration
+          subject: '🔑 ERICON Registration Verification Code',
+          html: `
+            <div style="font-family: sans-serif; padding: 24px; max-width: 480px; margin: 0 auto; background-color: #121824; color: #f8fafc; border-radius: 12px; border: 1px solid #1e293b;">
+              <h2 style="color: #10b981; font-weight: 700; margin-bottom: 16px; font-size: 20px;">Verify Your Email Address</h2>
+              <p style="font-size: 14px; color: #cbd5e1; line-height: 1.5;">Thank you for registering. Use the 6-digit OTP verification code below to verify your email:</p>
+              <div style="background-color: #1e293b; color: #10b981; font-size: 32px; font-weight: bold; text-align: center; padding: 16px; margin: 24px 0; border-radius: 8px; letter-spacing: 6px; border: 1px solid #334155;">
+                ${otp}
+              </div>
+              <p style="font-size: 12px; color: #64748b; margin-top: 20px;">This OTP verification code will expire in 5 minutes.</p>
+            </div>
+          `
+        })
+      });
+      if (emailResponse.ok) {
+        sentViaResend = true;
+      }
+    } catch (err) {
+      console.error('[RESEND REGISTRATION OTP FAULT]', err);
+    }
+  }
+
+  res.json({
+    success: true,
+    sandbox: !sentViaResend,
+    otp: !sentViaResend ? otp : undefined,
+    simulatedEmailInboxPayload: {
+      recipient: email,
+      subject: '🔑 ERICON Registration Verification Code',
+      body: `Your secure 6-digit email verification code is: ${otp}. This code expires in 5 minutes.`
+    }
+  });
+});
+
+app.post('/api/auth/register-verify-otp', (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) {
+    return res.status(400).json({ error: 'Email and OTP code are required.' });
+  }
+  const normalizedEmail = email.trim().toLowerCase();
+  const record = registrationOTPs[normalizedEmail];
+  if (!record) {
+    return res.status(400).json({ error: 'No active OTP request found or expired.' });
+  }
+  if (record.expiresAt < Date.now()) {
+    delete registrationOTPs[normalizedEmail];
+    return res.status(400).json({ error: 'OTP code has expired.' });
+  }
+  if (record.otp !== otp.trim()) {
+    return res.status(400).json({ error: 'Invalid OTP code. Please check and try again.' });
+  }
+
+  // Successfully verified, we can keep the OTP active for finalizing or clear it
+  // Let's clear it and return success
+  delete registrationOTPs[normalizedEmail];
+  res.json({ success: true });
+});
+
+app.post('/api/auth/register-finalize', checkRateLimit, (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required fields.' });
+  }
+  const normalizedEmail = email.trim().toLowerCase();
+  const emailExists = users.some(u => u.email.toLowerCase() === normalizedEmail);
+  if (emailExists) {
+    return res.status(400).json({ error: 'This email is already registered.' });
+  }
+
+  const baseUsername = normalizedEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '');
+  const username = baseUsername || `user_${Math.floor(Date.now() / 100000)}`;
+
+  const newUser = {
+    username,
+    email: normalizedEmail,
+    role: 'Research Member',
+    institution: 'ERICON Ecological Group',
+    country: 'Tanzania',
+    profession: 'Ecological Scientist',
+    classification: 'Expert',
+    researchInterests: 'Pneumatic vectors, epidemiology',
+    orcid_id: '',
+    profileImage: '',
+    passwordHash: bcrypt.hashSync(password, 10),
+    isEmailVerified: true,
+    createdAt: new Date().toISOString()
+  };
+
+  users.push(newUser);
+  saveCollaborationDB();
+  addAuditLog('SECURITY', `New scientist registration finalized: ${newUser.username} (${newUser.email})`);
+  logAction(`${newUser.username} registered`);
+
+  res.json({
+    success: true,
+    user: {
+      username: newUser.username,
+      email: newUser.email,
+      role: newUser.role,
+      institution: newUser.institution,
+      country: newUser.country,
+      profession: newUser.profession,
+      classification: newUser.classification,
+      researchInterests: newUser.researchInterests,
+      orcid_id: newUser.orcid_id,
+      profileImage: newUser.profileImage,
+      isEmailVerified: newUser.isEmailVerified
+    }
   });
 });
 
