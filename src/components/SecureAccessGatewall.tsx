@@ -27,6 +27,7 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [resendStatus, setResendStatus] = useState<'sending' | 'sent' | null>(null);
 
   // Form Fields
   const [email, setEmail] = useState('');
@@ -39,15 +40,13 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
   const [otpDigits, setOtpDigits] = useState<string[]>(Array(6).fill(''));
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // Sandbox simulation mail info
-  const [simulatedInboxMail, setSimulatedInboxMail] = useState<any | null>(null);
-
   // Auto-focus logic
   const emailInputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setError(null);
+    setResendStatus(null);
     if (step === 'login' || step === 'register_step1' || step === 'forgot_step1') {
       setTimeout(() => emailInputRef.current?.focus(), 100);
     } else if (step === 'register_step2' || step === 'forgot_step2') {
@@ -203,9 +202,6 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
       if (!res.ok) {
         setError(data.error || 'Failed to dispatch verification code.');
       } else {
-        if (data.sandbox) {
-          setSimulatedInboxMail(data.simulatedEmailInboxPayload);
-        }
         setStep('register_step2');
       }
     } catch {
@@ -241,6 +237,31 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
       setError('Unable to verify code with security directory.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Resend OTP for Registration Flow
+  const handleResendRegistrationOTP = async () => {
+    if (!email.trim()) return;
+    setError(null);
+    setResendStatus('sending');
+    try {
+      const res = await fetch('/api/auth/register-send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Failed to dispatch verification code.');
+        setResendStatus(null);
+      } else {
+        setResendStatus('sent');
+        setTimeout(() => setResendStatus(null), 3500);
+      }
+    } catch {
+      setError('Communication with the verification system failed.');
+      setResendStatus(null);
     }
   };
 
@@ -297,9 +318,6 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
       if (!res.ok) {
         setError(data.error || 'Email verification failed.');
       } else {
-        if (data.sandbox) {
-          setSimulatedInboxMail(data.simulatedEmailInboxPayload);
-        }
         setStep('forgot_step2');
       }
     } catch {
@@ -319,6 +337,31 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
     }
     setError(null);
     setStep('forgot_step3');
+  };
+
+  // Resend OTP for Forgot Password Recovery Flow
+  const handleResendForgotOTP = async () => {
+    if (!email.trim()) return;
+    setError(null);
+    setResendStatus('sending');
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Email verification failed.');
+        setResendStatus(null);
+      } else {
+        setResendStatus('sent');
+        setTimeout(() => setResendStatus(null), 3500);
+      }
+    } catch {
+      setError('Could not reach password recovery agent.');
+      setResendStatus(null);
+    }
   };
 
   // Step 3: Save New Password
@@ -349,25 +392,12 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
         setError(null);
         setPassword('');
         setConfirmPassword('');
-        setSimulatedInboxMail(null);
         alert('Password reset successfully. Please log in.');
       }
     } catch {
       setError('Could not apply password changes.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  // Quick helper to autofill OTP digits for Sandbox mode testing
-  const autofillSandboxCode = () => {
-    if (simulatedInboxMail) {
-      const match = simulatedInboxMail.body.match(/\b\d{6}\b/);
-      if (match) {
-        const code = match[0];
-        setOtpDigits(code.split(''));
-        setError(null);
-      }
     }
   };
 
@@ -442,7 +472,7 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
         )}
 
         {/* Content Box */}
-        <div className="p-6 overflow-y-auto" id="auth-modal-main-scroller">
+        <div className="p-6 overflow-y-auto flex-grow flex flex-col justify-center" id="auth-modal-main-scroller">
           <AnimatePresence mode="wait">
             {/* A. SIGN IN */}
             {step === 'login' && (
@@ -533,7 +563,7 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
-                className="space-y-4"
+                className="space-y-4 w-full"
               >
                 <form onSubmit={handleRegisterStep1} className="space-y-4">
                   <div className="space-y-2 text-left">
@@ -584,14 +614,14 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
-                className="space-y-5"
+                className="space-y-5 w-full"
               >
                 <div className="text-center">
                   <div className="w-10 h-10 bg-emerald-500/10 text-[#10b981] rounded-full flex items-center justify-center mx-auto mb-2">
                     <KeyRound className="w-5 h-5" />
                   </div>
                   <h4 className="font-semibold text-slate-800 dark:text-slate-100 text-sm">Verify your Email</h4>
-                  <p className="text-xs text-slate-404 mt-1">We sent a 6-digit verification code to your email.</p>
+                  <p className="text-xs text-slate-400 mt-1">We sent a 6-digit verification code to your email.</p>
                 </div>
 
                 <form onSubmit={handleRegisterStep2} className="space-y-5">
@@ -617,9 +647,26 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                   >
                     {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Verify Code'}
                   </button>
+
+                  <div className="text-center pt-1">
+                    <button
+                      type="button"
+                      disabled={resendStatus === 'sending'}
+                      onClick={handleResendRegistrationOTP}
+                      className="text-xs text-slate-400 hover:text-[#10b981] transition-colors bg-transparent border-0 cursor-pointer focus:outline-none font-medium"
+                    >
+                      {resendStatus === 'sending' ? (
+                        <span className="flex items-center gap-1.5 justify-center"><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Resending code...</span>
+                      ) : resendStatus === 'sent' ? (
+                        <span className="text-emerald-500 font-semibold">✓ Verification code resent successfully!</span>
+                      ) : (
+                        "Didn't receive code? Resend"
+                      )}
+                    </button>
+                  </div>
                 </form>
 
-                <div className="text-center">
+                <div className="text-center pt-2">
                   <button
                     type="button"
                     onClick={() => setStep('register_step1')}
@@ -638,7 +685,7 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
-                className="space-y-4"
+                className="space-y-4 w-full"
               >
                 <div className="text-center">
                   <h4 className="font-semibold text-slate-800 dark:text-slate-100 text-sm">Secure Your Account</h4>
@@ -707,7 +754,7 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
-                className="space-y-4"
+                className="space-y-4 w-full"
               >
                 <div className="text-left mb-2">
                   <h4 className="font-semibold text-slate-800 dark:text-slate-100 text-sm">Recover Password</h4>
@@ -756,14 +803,14 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
-                className="space-y-5"
+                className="space-y-5 w-full"
               >
                 <div className="text-center">
                   <div className="w-10 h-10 bg-emerald-500/10 text-[#10b981] rounded-full flex items-center justify-center mx-auto mb-2">
                     <KeyRound className="w-5 h-5" />
                   </div>
                   <h4 className="font-semibold text-slate-800 dark:text-slate-100 text-sm">Enter Recovery Code</h4>
-                  <p className="text-xs text-slate-400 mt-1">We dispatched a 6-digit recovery code to your email.</p>
+                  <p className="text-xs text-slate-404 mt-1">We dispatched a 6-digit recovery code to your email.</p>
                 </div>
 
                 <form onSubmit={handleForgotStep2} className="space-y-5">
@@ -788,9 +835,26 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                   >
                     Confirm Code
                   </button>
+
+                  <div className="text-center pt-1">
+                    <button
+                      type="button"
+                      disabled={resendStatus === 'sending'}
+                      onClick={handleResendForgotOTP}
+                      className="text-xs text-slate-400 hover:text-[#10b981] transition-colors bg-transparent border-0 cursor-pointer focus:outline-none font-medium"
+                    >
+                      {resendStatus === 'sending' ? (
+                        <span className="flex items-center gap-1.5 justify-center"><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Resending code...</span>
+                      ) : resendStatus === 'sent' ? (
+                        <span className="text-emerald-500 font-semibold">✓ Recovery code resent successfully!</span>
+                      ) : (
+                        "Didn't receive code? Resend"
+                      )}
+                    </button>
+                  </div>
                 </form>
 
-                <div className="text-center">
+                <div className="text-center pt-2">
                   <button
                     type="button"
                     onClick={() => setStep('forgot_step1')}
@@ -809,11 +873,11 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -5 }}
-                className="space-y-4"
+                className="space-y-4 w-full"
               >
                 <div className="text-center">
                   <h4 className="font-semibold text-slate-800 dark:text-slate-100 text-sm">Choose New Password</h4>
-                  <p className="text-xs text-slate-404 mt-1">Please enter your replacement login password below.</p>
+                  <p className="text-xs text-slate-400 mt-1">Please enter your replacement login password below.</p>
                 </div>
 
                 <form onSubmit={handleForgotStep3} className="space-y-4">
@@ -872,31 +936,6 @@ export const SecureAccessGatewall: React.FC<SecureAccessGatewallProps> = ({
             )}
           </AnimatePresence>
         </div>
-
-        {/* Dynamic Sandbox Mail Helper (At the bottom of the card) */}
-        {simulatedInboxMail && (
-          <div className="p-4 bg-slate-100 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800/80 font-mono text-[10px] text-start shrink-0 select-none" id="auth-email-sandbox">
-            <div className="flex justify-between items-center mb-1">
-              <span className="text-[9px] font-bold text-emerald-500 tracking-wide uppercase bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                SIMULATED INBOX
-              </span>
-              <button
-                type="button"
-                onClick={autofillSandboxCode}
-                className="text-[9px] font-bold text-[#10b981] hover:underline bg-transparent border-0 cursor-pointer p-0"
-              >
-                Autofill OTP Code
-              </button>
-            </div>
-            <div className="text-slate-600 dark:text-slate-300 space-y-1">
-              <div><strong className="text-slate-400">To:</strong> {simulatedInboxMail.recipient}</div>
-              <div><strong className="text-slate-400">Subject:</strong> {simulatedInboxMail.subject}</div>
-              <div className="bg-white dark:bg-slate-950 p-2 rounded border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 whitespace-pre-line text-[9px]">
-                {simulatedInboxMail.body}
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
